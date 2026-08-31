@@ -20,11 +20,20 @@ def _cosine_distance(a: list[float], b: list[float]) -> float:
     return 1.0 if norm == 0 else 1.0 - dot / norm
 
 
+def _feedback_by_page(events: list[dict]) -> dict[str, Counter]:
+    by_page: dict[str, Counter] = {}
+    for e in events:
+        if e["event"] == "feedback" and e.get("filename"):
+            by_page.setdefault(e["filename"], Counter())[e["verdict"]] += 1
+    return by_page
+
+
 def hot(r: Path, window_days: int, min_hits: int) -> list[list[dict]]:
     """Clusters of pages whose ledger heat crosses the promotion threshold."""
     events = ledger.load(r, window_days)
     reads = Counter(e["filename"] for e in events if e["event"] == "read")
     surfaced = Counter(e["filename"] for e in events if e["event"] == "search_hit")
+    feedback = _feedback_by_page(events)
 
     candidates = []
     for filename in set(reads) | set(surfaced):
@@ -36,6 +45,7 @@ def hot(r: Path, window_days: int, min_hits: int) -> list[list[dict]]:
                     "hits": total,
                     "reads": reads[filename],
                     "search_hits": surfaced[filename],
+                    "feedback": dict(feedback.get(filename, Counter())),
                 }
             )
     candidates.sort(key=lambda c: -c["hits"])
@@ -83,6 +93,12 @@ def stats(r: Path) -> dict:
     read_30d = {e["filename"] for e in month if e["event"] == "read"}
     touched_ever = {e["filename"] for e in events}
 
+    verdicts_30d = Counter(
+        e["verdict"] for e in month if e["event"] == "feedback"
+    )
+    rated = sum(v for k, v in verdicts_30d.items() if k != "miss")
+    helpful = sum(verdicts_30d[k] for k in ("solved", "partial", "context"))
+
     n = len(page_paths)
     return {
         "pages": n,
@@ -96,6 +112,11 @@ def stats(r: Path) -> dict:
             if surfaced_30d
             else 0
         ),
+        "feedback_30d": (
+            " ".join(f"{k}={verdicts_30d[k]}" for k in sorted(verdicts_30d)) or "none"
+        ),
+        "helpful_rate_30d_pct": round(100 * helpful / rated) if rated else "n/a",
+        "recall_misses_30d": verdicts_30d["miss"],
         "orphan_pages_pct": (
             round(100 * sum(1 for p in page_paths if p.name not in touched_ever) / n)
             if n

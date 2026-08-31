@@ -13,6 +13,21 @@ from pathlib import Path
 
 from . import corpus
 
+# Verdict taxonomy for feedback events: how a recalled memory related to the
+# task outcome. Each verdict drives a different downstream action —
+# solved/partial/context are graduation heat, partial and outdated feed the
+# consolidator's refinement queue, unrelated flags retrieval noise (bad
+# title/summary or a page that should split), and miss records a recall gap
+# (nothing useful existed; the event carries no filename).
+VERDICTS = {
+    "solved": "directly solved the problem or answered the question",
+    "partial": "led toward the solution but was incomplete",
+    "context": "helpful background; didn't itself solve anything",
+    "unrelated": "surfaced but irrelevant to the task",
+    "outdated": "relevant but stale or wrong; needs correction",
+    "miss": "nothing useful was found for this need (no page ref)",
+}
+
 
 def ledger_path(r: Path) -> Path:
     return corpus.meta_dir(r) / "ledger.jsonl"
@@ -26,7 +41,7 @@ def _session() -> str | None:
     return None
 
 
-def append(r: Path, event: str, filename: str, uuid: str | None = None, **extra) -> None:
+def append(r: Path, event: str, filename: str | None, uuid: str | None = None, **extra) -> None:
     record = {
         "ts": corpus.now_iso(),
         "event": event,

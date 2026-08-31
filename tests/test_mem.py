@@ -109,3 +109,22 @@ def test_hot_clusters_and_stats(root, fake_embed):
     assert stats["ledger_events"] == 6
     assert stats["pages_with_citations_pct"] == 50
     assert stats["orphan_pages_pct"] == 0  # both pages have events? a has, b has
+
+
+def test_feedback_in_stats_and_hot(root, fake_embed):
+    a = corpus.new_page(root, "Alpha", "alpha topic")
+    index.reindex(root)
+    for _ in range(5):
+        ledger.append(root, "read", a.name)
+    ledger.append(root, "feedback", a.name, verdict="solved", note="fixed it")
+    ledger.append(root, "feedback", a.name, verdict="unrelated")
+    ledger.append(root, "feedback", None, verdict="miss", note="needed X")
+
+    stats = report.stats(root)
+    assert stats["recall_misses_30d"] == 1
+    # rated = solved + unrelated = 2; helpful = solved = 1
+    assert stats["helpful_rate_30d_pct"] == 50
+    assert stats["feedback_30d"] == "miss=1 solved=1 unrelated=1"
+
+    clusters = report.hot(root, window_days=30, min_hits=5)
+    assert clusters[0][0]["feedback"] == {"solved": 1, "unrelated": 1}

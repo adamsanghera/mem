@@ -132,6 +132,34 @@ def cmd_show(args) -> None:
         print(text)
 
 
+def cmd_feedback(args) -> None:
+    r = corpus.root()
+    if args.verdict == "miss":
+        if args.refs:
+            _die("miss records a recall gap, not a page rating; drop the page refs")
+        if not args.note:
+            _die("miss needs --note describing what was missing")
+        ledger.append(r, "feedback", None, verdict="miss", note=args.note)
+        print("recorded miss — now write the memory (mem add) and consider an eval fixture")
+        return
+    if not args.refs:
+        _die("pass at least one page (filename or uuid)")
+    for ref in args.refs:
+        path = corpus.resolve(r, ref)
+        if path is None:
+            _die(f"no page {ref!r}")
+        fm, _ = corpus.parse_frontmatter(path.read_text(encoding="utf-8"))
+        ledger.append(
+            r,
+            "feedback",
+            path.name,
+            uuid=_fm_str(fm or {}, "uuid") or None,
+            verdict=args.verdict,
+            note=args.note,
+        )
+        print(f"{args.verdict}: {path.name}")
+
+
 def cmd_reindex(args) -> None:
     embedded, removed = index.reindex(corpus.root(), full=args.full)
     print(f"embedded {embedded}, removed {removed}")
@@ -148,9 +176,13 @@ def cmd_hot(args) -> None:
     for i, cluster in enumerate(clusters, 1):
         print(f"cluster {i}:")
         for page in cluster:
+            fb = page.get("feedback") or {}
+            fb_str = (
+                "  [" + " ".join(f"{k}={fb[k]}" for k in sorted(fb)) + "]" if fb else ""
+            )
             print(
                 f"  {page['hits']:>3} hits ({page['reads']} reads, "
-                f"{page['search_hits']} surfaced)  {page['filename']}"
+                f"{page['search_hits']} surfaced)  {page['filename']}{fb_str}"
             )
 
 
@@ -229,6 +261,19 @@ def main() -> None:
     p = sub.add_parser("show", help="print page(s) by filename or uuid")
     p.add_argument("refs", nargs="+")
     p.set_defaults(fn=cmd_show)
+
+    p = sub.add_parser(
+        "feedback",
+        help="rate how recalled memories related to the task outcome",
+        description="Rate recalled memories so heat reflects usefulness, not just access.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="verdicts:\n"
+        + "\n".join(f"  {k:<10} {v}" for k, v in ledger.VERDICTS.items()),
+    )
+    p.add_argument("verdict", choices=list(ledger.VERDICTS))
+    p.add_argument("refs", nargs="*", help="page filename(s) or uuid(s); none for miss")
+    p.add_argument("--note", help="why — expected for partial/unrelated/outdated/miss")
+    p.set_defaults(fn=cmd_feedback)
 
     p = sub.add_parser("reindex", help="refresh the vector index")
     p.add_argument("--full", action="store_true", help="re-embed everything")
