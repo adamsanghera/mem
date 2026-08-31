@@ -34,7 +34,9 @@ def ledger_path(r: Path) -> Path:
 
 
 def _session() -> str | None:
-    for var in ("CURSOR_TRACE_ID", "CURSOR_SESSION_ID", "TERM_SESSION_ID"):
+    """Cursor agent shells export CURSOR_CONVERSATION_ID, which distinguishes
+    concurrent agent sessions; MEM_SESSION overrides for deliberate naming."""
+    for var in ("MEM_SESSION", "CURSOR_CONVERSATION_ID", "TERM_SESSION_ID"):
         value = os.environ.get(var)
         if value:
             return value

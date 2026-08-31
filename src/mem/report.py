@@ -106,6 +106,9 @@ def stats(r: Path) -> dict:
         "pages_with_citations_pct": round(100 * cited / n) if n else 0,
         "graduated_pages": graduated,
         "searches_7d": searches_this_week,
+        "active_sessions_7d": len(
+            {e["session"] for e in week if e.get("session")}
+        ),
         "surfaced_pages_30d": len(surfaced_30d),
         "read_through_30d_pct": (
             round(100 * len(read_30d & surfaced_30d) / len(surfaced_30d))

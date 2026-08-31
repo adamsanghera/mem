@@ -72,6 +72,16 @@ def test_ledger_append_load_window(root):
     assert len(ledger.load(root)) == 2
 
 
+def test_session_identifier(root, monkeypatch):
+    monkeypatch.setenv("CURSOR_CONVERSATION_ID", "conv-123")
+    ledger.append(root, "read", "a.md")
+    assert ledger.load(root)[-1]["session"] == "conv-123"
+    # explicit override wins over the harness-provided id
+    monkeypatch.setenv("MEM_SESSION", "named-session")
+    ledger.append(root, "read", "a.md")
+    assert ledger.load(root)[-1]["session"] == "named-session"
+
+
 def test_reindex_incremental(root, fake_embed):
     page = corpus.new_page(root, "One", "first body")
     embedded, removed = index.reindex(root)
