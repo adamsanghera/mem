@@ -20,9 +20,10 @@ title: Index
 summary: What this memoryfield is.
 ---
 
-Personal memories of Adam Sanghera (and his agents): incidents, tool quirks,
-decisions and their reasons, hard-won facts. Written liberally, one topic per
-page, with citations. See meta/ for the hit ledger and retrieval evals.
+Personal memories of this corpus's owner and their agents: incidents, tool
+quirks, decisions and their reasons, hard-won facts. Written liberally, one
+topic per page, with citations. See meta/ for the hit ledger and retrieval
+evals.
 """
 
 

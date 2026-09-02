@@ -6,14 +6,16 @@ have — a **hit ledger** (`meta/ledger.jsonl`) recording every search hit and
 read, so that frequently-recalled memories can be nominated for consolidation
 into longer-lived skills.
 
-Design doc: `.adam/personal-memory/spec.md` in the everysphere checkout.
+The design in one line: heat nominates, character decides, a human ratifies —
+frequently-recalled procedural memories earn consolidation into agent skills,
+and unmet demand (weak searches, misses) becomes a self-clearing bounty board.
 
 ## Setup
 
 ```bash
-brew services start ollama && ollama pull nomic-embed-text
-uv tool install --editable ~/code/mem
-mem init            # creates ~/memories (override with MEM_ROOT)
+ollama pull nomic-embed-text   # and have ollama serving (brew services start ollama on macOS)
+uv tool install --editable .
+mem init                       # creates ~/memories (override with MEM_ROOT)
 ```
 
 ## Use

@@ -40,8 +40,9 @@ def ledger_path(r: Path) -> Path:
 
 
 def _session() -> str | None:
-    """Cursor agent shells export CURSOR_CONVERSATION_ID, which distinguishes
-    concurrent agent sessions; MEM_SESSION overrides for deliberate naming."""
+    """Best-effort session identity so concurrent agent sessions stay
+    distinguishable: MEM_SESSION is the explicit, harness-agnostic override;
+    the rest are auto-detected from known harness/terminal environments."""
     for var in ("MEM_SESSION", "CURSOR_CONVERSATION_ID", "TERM_SESSION_ID"):
         value = os.environ.get(var)
         if value:

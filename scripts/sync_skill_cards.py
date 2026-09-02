@@ -1,18 +1,19 @@
 #!/usr/bin/env python
-"""Sync ~/.cursor/skills/*/SKILL.md into pointer cards in the memory corpus.
+"""Sync a skills directory (<name>/SKILL.md layout, as used by Cursor and
+Claude Code) into pointer cards in the memory corpus.
 
-One small `skill-<name>.md` page per personal skill: title, the skill's
-trigger description, and the path to the real file. Cards give semantic
-search a route to skills whose description didn't fire (and make skill
-usage measurable through the ledger), while the SKILL.md stays the single
-source of truth — cards carry pointers, never procedure bodies.
+One small `skill-<name>.md` page per skill: title, the skill's trigger
+description, and the path to the real file. Cards give semantic search a
+route to skills whose description didn't fire (and make skill usage
+measurable through the ledger), while the SKILL.md stays the single source
+of truth — cards carry pointers, never procedure bodies.
 
 Idempotent: cards embed a sha256 of their source; unchanged skills are
 skipped, changed ones are rewritten preserving uuid/created, and cards
 whose skill vanished are deleted. Sync writes are deliberately NOT logged
 to the ledger — it measures usage, not maintenance. Run:
 
-    ~/code/mem/.venv/bin/python ~/code/mem/scripts/sync_skill_cards.py
+    python scripts/sync_skill_cards.py [skills_dir]   # default ~/.cursor/skills
 """
 
 import hashlib
@@ -28,7 +29,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from mem import corpus  # noqa: E402
 
-SKILLS_DIR = Path.home() / ".cursor" / "skills"
+DEFAULT_SKILLS_DIR = Path.home() / ".cursor" / "skills"
 CARD_PREFIX = "skill-"
 SUMMARY_LIMIT = 200
 
@@ -52,7 +53,7 @@ def parse_skill(path: Path) -> tuple[str, str]:
 
 def card_body(name: str, description: str, source: Path) -> str:
     return (
-        f"Pointer card for the personal Cursor skill `{name}`. This card is "
+        f"Pointer card for the agent skill `{name}`. This card is "
         f"a catalog entry, not the procedure: read {source} in full before "
         "acting on it.\n\n"
         f"When to reach for it: {description}"
@@ -60,11 +61,12 @@ def card_body(name: str, description: str, source: Path) -> str:
 
 
 def main() -> None:
+    skills_dir = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else DEFAULT_SKILLS_DIR
     root = corpus.root()
     now = corpus.now_iso()
 
     sources: dict[str, tuple[Path, str, str]] = {}  # card filename -> (path, name, desc)
-    for skill_md in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+    for skill_md in sorted(skills_dir.glob("*/SKILL.md")):
         slug = corpus.slugify(f"{CARD_PREFIX}{skill_md.parent.name}")
         name, description = parse_skill(skill_md)
         if not description:
