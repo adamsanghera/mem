@@ -119,6 +119,28 @@ def bounties(r: Path, window_days: int) -> list[dict]:
     return open_clusters
 
 
+def demand_for(r: Path, query: str, window_days: int = 90) -> Counter:
+    """Prior unmet demand near this query: counts of weak_search/miss signals
+    within CLUSTER_DISTANCE of it, by kind. Lets a cold search advertise how
+    many times the same gap has been hit before."""
+    signals = []
+    for e in ledger.load(r, window_days):
+        if e["event"] == "weak_search" and e.get("query"):
+            signals.append((e["query"], "weak_search"))
+        elif e["event"] == "feedback" and e.get("verdict") == "miss" and e.get("note"):
+            signals.append((e["note"], "miss"))
+    if not signals:
+        return Counter()
+    texts = sorted({t for t, _ in signals})
+    embedded = embed.embed_texts([query] + texts)
+    qvec, vectors = embedded[0], dict(zip(texts, embedded[1:]))
+    counts: Counter = Counter()
+    for text, kind in signals:
+        if _cosine_distance(qvec, vectors[text]) < CLUSTER_DISTANCE:
+            counts[kind] += 1
+    return counts
+
+
 def stats(r: Path) -> dict:
     page_paths = corpus.pages(r)
     sizes = [p.stat().st_size for p in page_paths]

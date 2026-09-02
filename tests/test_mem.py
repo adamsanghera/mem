@@ -141,6 +141,20 @@ def test_bounties_cluster_weak_searches_and_misses(root, monkeypatch):
     assert report.stats(root)["weak_searches_30d"] == 3
 
 
+def test_demand_for_counts_prior_signals(root, monkeypatch):
+    def fake(texts):
+        return [[1.0, 0.0] if t.startswith("graphite") else [0.0, 1.0] for t in texts]
+
+    monkeypatch.setattr(embed, "embed_texts", fake)
+    ledger.append(root, "weak_search", None, query="graphite retry backoff values")
+    ledger.append(root, "feedback", None, verdict="miss", note="graphite retry backoff table")
+    ledger.append(root, "weak_search", None, query="unrelated other topic")
+
+    demand = report.demand_for(root, "graphite retry backoff policy")
+    assert demand == {"weak_search": 1, "miss": 1}
+    assert report.demand_for(root, "zzz nothing similar") == {"weak_search": 1}
+
+
 def test_feedback_in_stats_and_hot(root, fake_embed):
     a = corpus.new_page(root, "Alpha", "alpha topic")
     index.reindex(root)

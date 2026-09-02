@@ -97,7 +97,10 @@ def cmd_search(args) -> None:
         )
     best = min((h.distance for h in hits), default=None)
     weak = best is None or best > ledger.WEAK_BEST_DISTANCE
+    prior_demand = None
     if weak:
+        # measure demand before appending, so the count excludes this search
+        prior_demand = report.demand_for(r, args.query)
         ledger.append(
             r,
             "weak_search",
@@ -127,11 +130,23 @@ def cmd_search(args) -> None:
             print(f"       {summary}")
     print("\nread with: mem show <filename> (parallel calls are fine)")
     if weak:
-        print(
-            "weak results — nothing close in memory (bounty logged). If you "
-            "figure this out yourself, save it with mem add; if a page should "
-            "have existed, also log `mem feedback miss --note '...'`."
-        )
+        hits_before = sum(prior_demand.values()) if prior_demand else 0
+        if hits_before:
+            breakdown = " ".join(f"{k}={v}" for k, v in sorted(prior_demand.items()))
+            print(
+                f"weak results — OPEN BOUNTY: this gap has been hit "
+                f"{hits_before} time(s) before ({breakdown}) and still has no "
+                "page. If this task teaches you the answer, close the bounty: "
+                "`mem add` one cited page, and every future session that hits "
+                "this recalls your page instead of re-deriving it."
+            )
+        else:
+            print(
+                "weak results — bounty opened: you're the first to hit this "
+                "gap. If you work out the answer during this task, close it "
+                "with `mem add` (one cited page); also log `mem feedback miss "
+                "--note '...'` if a page clearly should have existed."
+            )
 
 
 def cmd_show(args) -> None:
