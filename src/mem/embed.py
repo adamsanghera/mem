@@ -33,8 +33,9 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             payload = json.load(resp)
     except urllib.error.URLError as e:
         raise RuntimeError(
-            f"embedding failed ({e}). Is ollama running? "
-            "Try: brew services start ollama && ollama pull nomic-embed-text"
+            f"embedding failed ({e}). Is ollama serving (`ollama serve`, or "
+            "OLLAMA_URL for a remote one) and is the model pulled "
+            "(`ollama pull nomic-embed-text`)?"
         ) from e
     embeddings = payload.get("embeddings")
     if not isinstance(embeddings, list) or len(embeddings) != len(texts):

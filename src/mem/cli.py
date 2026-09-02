@@ -15,6 +15,10 @@ from . import corpus, index, ledger, report
 
 GITIGNORE = "nomic-embed-text-v1.5.sqlite3\n"
 
+# union-merge the ledger: concurrent appends from different machines are both
+# kept, which is the correct resolution for an append-only event log
+GITATTRIBUTES = "meta/ledger.jsonl merge=union\n"
+
 INDEX_MD = """---
 title: Index
 summary: What this memoryfield is.
@@ -42,6 +46,8 @@ def cmd_init(args) -> None:
     corpus.meta_dir(r).mkdir(parents=True, exist_ok=True)
     if not (r / ".gitignore").exists():
         (r / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
+    if not (r / ".gitattributes").exists():
+        (r / ".gitattributes").write_text(GITATTRIBUTES, encoding="utf-8")
     if not (r / "index.md").exists():
         (r / "index.md").write_text(INDEX_MD, encoding="utf-8")
     evals = corpus.meta_dir(r) / "evals.yaml"
