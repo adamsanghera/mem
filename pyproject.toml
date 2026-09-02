@@ -1,7 +1,7 @@
 [project]
 name = "mem"
 version = "0.1.0"
-description = "Personal agent memory: memoryfield-spec corpus with a hit ledger"
+description = "Personal agent memory: markdown pages + a sqlite vector index, with a usage ledger"
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6", "sqlite-vec>=0.1.6"]
 

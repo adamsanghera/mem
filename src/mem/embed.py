@@ -1,7 +1,8 @@
 """Embeddings via the local ollama daemon's HTTP API.
 
-MODEL_CODE is the version-pinned identifier the memoryfield spec requires in
-index filenames; OLLAMA_MODEL is ollama's unversioned tag for the same model.
+MODEL_CODE is the version-pinned identifier used in the index filename (so
+indexes from different model versions are never conflated); OLLAMA_MODEL is
+ollama's unversioned tag for the same model.
 """
 
 import json

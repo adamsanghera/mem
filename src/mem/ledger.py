@@ -1,5 +1,5 @@
-"""The hit ledger: append-only JSONL under meta/ (a subdirectory so the spec
-never treats it as corpus content).
+"""The hit ledger: append-only JSONL under meta/ (a subdirectory, so page
+scanners never treat it as corpus content).
 
 Unlike the vector index this is NOT a cache — it is the consolidation signal
 that decides which memories earn promotion into skills. JSONL rather than

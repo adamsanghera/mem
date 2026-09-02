@@ -1,10 +1,12 @@
 # mem
 
-Personal agent memory: a [memoryfield-spec](https://github.com/calpaterson/memoryfield-spec)
-corpus (markdown pages + sqlite vector index) plus the piece the spec doesn't
-have — a **hit ledger** (`meta/ledger.jsonl`) recording every search hit and
-read, so that frequently-recalled memories can be nominated for consolidation
-into longer-lived skills.
+Personal agent memory: a corpus of markdown pages with a sqlite vector index
+(the on-disk layout follows Cal Paterson's
+[memoryfield](https://calpaterson.com/memoryfields.html) format, so corpora
+interoperate with other memoryfield tooling) plus the piece that format
+doesn't have — a **hit ledger** (`meta/ledger.jsonl`) recording every search
+hit and read, so that frequently-recalled memories can be nominated for
+consolidation into longer-lived skills.
 
 The design in one line: heat nominates, character decides, a human ratifies —
 frequently-recalled procedural memories earn consolidation into agent skills,
@@ -28,7 +30,7 @@ mem reindex                          # incremental; --full to re-embed all
 mem hot --window-days 30 --min-hits 5   # consolidation candidates
 mem stats
 mem eval                             # golden retrieval fixtures (meta/evals.yaml)
-mem verify                           # spec-conformance checks
+mem verify                           # corpus hygiene checks
 mem export --out memories.memoryfield.zip
 ```
 

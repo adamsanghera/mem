@@ -1,8 +1,9 @@
-"""The spec-standard vector index: a deletable cache derived from the pages.
+"""The vector index: a deletable cache derived from the pages.
 
 Schema, embedding input (whole file incl. frontmatter, truncated to 8192
-bytes, nomic task prefixes) and cosine full-scan search all follow
-memoryfield-spec SPEC.md so the corpus stays readable by other tooling.
+bytes, nomic task prefixes) and cosine full-scan search all match the
+memoryfield format's reference layout, so the corpus stays readable by
+other memoryfield tooling.
 """
 
 import contextlib

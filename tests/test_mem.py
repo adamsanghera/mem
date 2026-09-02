@@ -47,7 +47,7 @@ def test_frontmatter_roundtrip(root):
     assert fm["title"] == "Test Page"
     assert fm["citations"] == ["https://x"]
     assert body.strip() == "Body text."
-    # spec: datetimes must be quoted strings, not YAML timestamps
+    # datetimes stay quoted strings, not YAML timestamp objects
     assert isinstance(fm["created"], str)
 
 

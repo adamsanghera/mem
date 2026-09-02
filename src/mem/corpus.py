@@ -1,9 +1,10 @@
 """Page files: naming rules, frontmatter, listing. Pure file operations.
 
-The corpus is a memoryfield (github.com/calpaterson/memoryfield-spec): a flat
-directory of markdown pages with YAML frontmatter. Everything here is derived
-from that spec's MUSTs — filename alphabet, debris exclusion, quoted
-datetimes, the 8192-byte soft page limit.
+The corpus layout follows the memoryfield format
+(calpaterson.com/memoryfields.html): a flat directory of markdown pages with
+YAML frontmatter. The rules here — filename alphabet, debris exclusion,
+quoted datetimes, the 8192-byte soft page limit — keep corpora readable by
+other memoryfield tooling.
 """
 
 import os
@@ -77,8 +78,8 @@ def parse_frontmatter(text: str) -> tuple[dict | None, str]:
 
 
 def build_page(fm: dict, body: str) -> str:
-    # default_style=None + safe_dump quotes timestamp-like strings, which the
-    # spec requires so YAML 1.1 parsers don't coerce them to datetime objects.
+    # safe_dump quotes timestamp-like strings, keeping datetimes as strings
+    # so YAML 1.1 parsers don't coerce them to datetime objects.
     dumped = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
     return f"---\n{dumped}---\n\n{body.strip()}\n"
 

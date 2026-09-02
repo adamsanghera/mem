@@ -340,7 +340,7 @@ def main() -> None:
 
     sub.add_parser("stats", help="corpus and usage metrics").set_defaults(fn=cmd_stats)
     sub.add_parser("eval", help="run golden retrieval fixtures").set_defaults(fn=cmd_eval)
-    sub.add_parser("verify", help="spec-conformance checks").set_defaults(fn=cmd_verify)
+    sub.add_parser("verify", help="corpus hygiene checks").set_defaults(fn=cmd_verify)
 
     p = sub.add_parser("export", help="archive pages + index as a memoryfield zip")
     p.add_argument("--out", default="memories.memoryfield.zip")
