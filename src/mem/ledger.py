@@ -28,6 +28,12 @@ VERDICTS = {
     "miss": "nothing useful was found for this need (no page ref)",
 }
 
+# A search whose best (lowest) cosine distance exceeds this found nothing
+# close: relevant pages land under ~0.45 with nomic-embed-text. Such
+# searches are auto-logged as weak_search events — revealed demand for a
+# memory that doesn't exist yet, aggregated by `mem bounties`.
+WEAK_BEST_DISTANCE = 0.5
+
 
 def ledger_path(r: Path) -> Path:
     return corpus.meta_dir(r) / "ledger.jsonl"

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import corpus, index, ledger
+from . import corpus, embed, index, ledger
 
 # Pages whose embeddings sit within this cosine distance are reported as one
 # cluster: hot together, consolidated together.
@@ -70,6 +70,55 @@ def hot(r: Path, window_days: int, min_hits: int) -> list[list[dict]]:
     return clusters
 
 
+def bounties(r: Path, window_days: int) -> list[dict]:
+    """The bounty board: unmet-demand signals (weak searches + miss verdicts)
+    clustered by embedding similarity, so repeated needs rank first. Each
+    cluster is a memory somebody wanted and nobody has written."""
+    signals = []
+    for e in ledger.load(r, window_days):
+        if e["event"] == "weak_search" and e.get("query"):
+            signals.append({"text": e["query"], "kind": "weak_search", "ts": e["ts"]})
+        elif e["event"] == "feedback" and e.get("verdict") == "miss" and e.get("note"):
+            signals.append({"text": e["note"], "kind": "miss", "ts": e["ts"]})
+    if not signals:
+        return []
+
+    texts = sorted({s["text"] for s in signals})
+    vectors = dict(zip(texts, embed.embed_texts(texts)))
+
+    clusters: list[dict] = []
+    for s in sorted(signals, key=lambda x: x["ts"]):
+        vec = vectors[s["text"]]
+        home = None
+        for cluster in clusters:
+            if _cosine_distance(vec, vectors[cluster["texts"][0]]) < CLUSTER_DISTANCE:
+                home = cluster
+                break
+        if home is None:
+            clusters.append(
+                {"texts": [s["text"]], "count": 1, "kinds": {s["kind"]: 1}, "last": s["ts"]}
+            )
+        else:
+            home["count"] += 1
+            home["kinds"][s["kind"]] = home["kinds"].get(s["kind"], 0) + 1
+            if s["text"] not in home["texts"]:
+                home["texts"].append(s["text"])
+            home["last"] = max(home["last"], s["ts"])
+    # self-clearing: a bounty is only open while the corpus still lacks a
+    # close page for it — re-search the representative text and drop
+    # clusters that a page now satisfies (no index = nothing satisfied)
+    open_clusters = []
+    for cluster in clusters:
+        try:
+            hits = index.search(r, cluster["texts"][0], 1)
+        except RuntimeError:
+            hits = []
+        if not hits or hits[0].distance > ledger.WEAK_BEST_DISTANCE:
+            open_clusters.append(cluster)
+    open_clusters.sort(key=lambda c: (-c["count"], c["last"]))
+    return open_clusters
+
+
 def stats(r: Path) -> dict:
     page_paths = corpus.pages(r)
     sizes = [p.stat().st_size for p in page_paths]
@@ -118,6 +167,7 @@ def stats(r: Path) -> dict:
         "feedback_30d": (
             " ".join(f"{k}={verdicts_30d[k]}" for k in sorted(verdicts_30d)) or "none"
         ),
+        "weak_searches_30d": sum(1 for e in month if e["event"] == "weak_search"),
         "helpful_rate_30d_pct": round(100 * helpful / rated) if rated else "n/a",
         "recall_misses_30d": verdicts_30d["miss"],
         "orphan_pages_pct": (

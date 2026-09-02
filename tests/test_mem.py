@@ -121,6 +121,26 @@ def test_hot_clusters_and_stats(root, fake_embed):
     assert stats["orphan_pages_pct"] == 0  # both pages have events? a has, b has
 
 
+def test_bounties_cluster_weak_searches_and_misses(root, monkeypatch):
+    def fake(texts):
+        # first-token topic decides the direction: same topic ⇒ same cluster
+        return [
+            [1.0, 0.0] if t.startswith("graphite") else [0.0, 1.0] for t in texts
+        ]
+
+    monkeypatch.setattr(embed, "embed_texts", fake)
+    ledger.append(root, "weak_search", None, query="graphite retry backoff values")
+    ledger.append(root, "weak_search", None, query="graphite retry backoff config")
+    ledger.append(root, "feedback", None, verdict="miss", note="graphite retry backoff table")
+    ledger.append(root, "weak_search", None, query="unrelated other topic")
+
+    clusters = report.bounties(root, 30)
+    assert len(clusters) == 2
+    assert clusters[0]["count"] == 3
+    assert clusters[0]["kinds"] == {"weak_search": 2, "miss": 1}
+    assert report.stats(root)["weak_searches_30d"] == 3
+
+
 def test_feedback_in_stats_and_hot(root, fake_embed):
     a = corpus.new_page(root, "Alpha", "alpha topic")
     index.reindex(root)

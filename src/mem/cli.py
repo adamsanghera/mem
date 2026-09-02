@@ -95,6 +95,16 @@ def cmd_search(args) -> None:
             query=args.query,
             score=round(hit.distance, 4),
         )
+    best = min((h.distance for h in hits), default=None)
+    weak = best is None or best > ledger.WEAK_BEST_DISTANCE
+    if weak:
+        ledger.append(
+            r,
+            "weak_search",
+            None,
+            query=args.query,
+            score=round(best, 4) if best is not None else None,
+        )
     if args.json:
         print(
             json.dumps(
@@ -116,6 +126,12 @@ def cmd_search(args) -> None:
         if summary:
             print(f"       {summary}")
     print("\nread with: mem show <filename> (parallel calls are fine)")
+    if weak:
+        print(
+            "weak results — nothing close in memory (bounty logged). If you "
+            "figure this out yourself, save it with mem add; if a page should "
+            "have existed, also log `mem feedback miss --note '...'`."
+        )
 
 
 def cmd_show(args) -> None:
@@ -184,6 +200,22 @@ def cmd_hot(args) -> None:
                 f"  {page['hits']:>3} hits ({page['reads']} reads, "
                 f"{page['search_hits']} surfaced)  {page['filename']}{fb_str}"
             )
+
+
+def cmd_bounties(args) -> None:
+    clusters = report.bounties(corpus.root(), args.window_days)
+    if args.json:
+        print(json.dumps(clusters, indent=2))
+        return
+    if not clusters:
+        print(f"no unmet-demand signals in {args.window_days}d")
+        return
+    for i, cluster in enumerate(clusters, 1):
+        kinds = " ".join(f"{k}={v}" for k, v in sorted(cluster["kinds"].items()))
+        print(f"bounty {i}: {cluster['count']} signal(s), last {cluster['last'][:10]}  [{kinds}]")
+        for text in cluster["texts"][:3]:
+            print(f"    {text!r}")
+    print("\nfill a bounty: research it, then `mem add` the page(s) it wanted")
 
 
 def cmd_stats(args) -> None:
@@ -284,6 +316,11 @@ def main() -> None:
     p.add_argument("--min-hits", type=int, default=5)
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_hot)
+
+    p = sub.add_parser("bounties", help="unmet-demand board: weak searches + misses, clustered")
+    p.add_argument("--window-days", type=int, default=90)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_bounties)
 
     sub.add_parser("stats", help="corpus and usage metrics").set_defaults(fn=cmd_stats)
     sub.add_parser("eval", help="run golden retrieval fixtures").set_defaults(fn=cmd_eval)
