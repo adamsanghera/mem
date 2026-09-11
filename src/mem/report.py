@@ -79,7 +79,9 @@ def bounties(r: Path, window_days: int) -> list[dict]:
         if e["event"] == "weak_search" and e.get("query"):
             signals.append({"text": e["query"], "kind": "weak_search", "ts": e["ts"]})
         elif e["event"] == "feedback" and e.get("verdict") == "miss" and e.get("note"):
-            signals.append({"text": e["note"], "kind": "miss", "ts": e["ts"]})
+            signals.append(
+                {"text": e["note"], "kind": "miss", "ts": e["ts"], "source": e.get("source")}
+            )
     if not signals:
         return []
 
@@ -95,15 +97,21 @@ def bounties(r: Path, window_days: int) -> list[dict]:
                 home = cluster
                 break
         if home is None:
-            clusters.append(
-                {"texts": [s["text"]], "count": 1, "kinds": {s["kind"]: 1}, "last": s["ts"]}
-            )
-        else:
-            home["count"] += 1
-            home["kinds"][s["kind"]] = home["kinds"].get(s["kind"], 0) + 1
-            if s["text"] not in home["texts"]:
-                home["texts"].append(s["text"])
-            home["last"] = max(home["last"], s["ts"])
+            home = {
+                "texts": [],
+                "count": 0,
+                "kinds": {},
+                "last": s["ts"],
+                "sources": [],
+            }
+            clusters.append(home)
+        home["count"] += 1
+        home["kinds"][s["kind"]] = home["kinds"].get(s["kind"], 0) + 1
+        if s["text"] not in home["texts"]:
+            home["texts"].append(s["text"])
+        if s.get("source") and s["source"] not in home["sources"]:
+            home["sources"].append(s["source"])
+        home["last"] = max(home["last"], s["ts"])
     # self-clearing: a bounty is only open while the corpus still lacks a
     # close page for it — re-search the representative text and drop
     # clusters that a page now satisfies (no index = nothing satisfied)

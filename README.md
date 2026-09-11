@@ -14,6 +14,16 @@ memoryfield tooling can read it. The index is a cache: delete it and
 `meta/`, the usage ledger (`ledger.jsonl`) and retrieval fixtures
 (`evals.yaml`), so the pages themselves stay plain markdown.
 
+## What belongs here
+
+Knowledge with no single home in code. If a fact belongs to one module,
+write it there, in a comment or a doc beside the code. `mem` is for what
+crosses those boundaries: incidents and their root causes, decisions and the
+reasons behind them, quirks of tools and vendors, the shape of a system that
+spans repos, and the preferences of the people you work with. The test for a
+page: a future reader finds it faster here than by re-deriving it from
+source.
+
 ## Setup
 
 Requires a running [ollama](https://ollama.com) and
@@ -55,7 +65,17 @@ mem eval        # retrieval regression fixtures (meta/evals.yaml)
 
 A hot page that keeps earning "solved" is a candidate for promotion into
 something curated, like an agent skill. A bounty is the reverse signal: a
-page somebody wanted and nobody wrote. The board clears itself once a
+page somebody wanted and nobody wrote. Bounties come from two places.
+Searches that find nothing register one automatically. Known gaps, such as
+open questions in a spec or a design doc, can be declared directly:
+
+```bash
+mem feedback miss --note "which stores hold pool-derived diff data" \
+  --source docs/90-cache-topology.md --key investigate:diff-stores
+```
+
+The key makes re-declaring the same gap a no-op, so a script that scans
+docs for open questions can run repeatedly. The board clears itself once a
 satisfying page exists.
 
 ## Housekeeping

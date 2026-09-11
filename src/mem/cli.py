@@ -177,7 +177,12 @@ def cmd_feedback(args) -> None:
             _die("miss records a recall gap, not a page rating; drop the page refs")
         if not args.note:
             _die("miss needs --note describing what was missing")
-        ledger.append(r, "feedback", None, verdict="miss", note=args.note)
+        if args.key and ledger.has_key(r, args.key):
+            print(f"already registered: {args.key}")
+            return
+        ledger.append(
+            r, "feedback", None, verdict="miss", note=args.note, source=args.source, key=args.key
+        )
         print("recorded miss — now write the memory (mem add) and consider an eval fixture")
         return
     if not args.refs:
@@ -237,6 +242,8 @@ def cmd_bounties(args) -> None:
         print(f"bounty {i}: {cluster['count']} signal(s), last {cluster['last'][:10]}  [{kinds}]")
         for text in cluster["texts"][:3]:
             print(f"    {text!r}")
+        for source in cluster.get("sources", [])[:3]:
+            print(f"    declared in: {source}")
     print("\nfill a bounty: research it, then `mem add` the page(s) it wanted")
 
 
@@ -327,6 +334,10 @@ def main() -> None:
     p.add_argument("verdict", choices=list(ledger.VERDICTS))
     p.add_argument("refs", nargs="*", help="page filename(s) or uuid(s); none for miss")
     p.add_argument("--note", help="why — expected for partial/unrelated/outdated/miss")
+    p.add_argument("--source", help="miss only: where the gap was declared (a spec, doc, or thread)")
+    p.add_argument(
+        "--key", help="miss only: stable id for a declared gap; re-registering it is a no-op"
+    )
     p.set_defaults(fn=cmd_feedback)
 
     p = sub.add_parser("reindex", help="refresh the vector index")

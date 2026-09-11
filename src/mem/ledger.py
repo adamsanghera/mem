@@ -65,6 +65,12 @@ def append(r: Path, event: str, filename: str | None, uuid: str | None = None, *
         f.write(json.dumps(record, separators=(",", ":")) + "\n")
 
 
+def has_key(r: Path, key: str) -> bool:
+    """Whether a declared gap with this stable key is already on the ledger,
+    so re-running a marker miner never inflates demand counts."""
+    return any(e.get("key") == key for e in load(r))
+
+
 def load(r: Path, window_days: int | None = None) -> list[dict]:
     path = ledger_path(r)
     if not path.is_file():

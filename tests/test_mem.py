@@ -141,6 +141,18 @@ def test_bounties_cluster_weak_searches_and_misses(root, monkeypatch):
     assert report.stats(root)["weak_searches_30d"] == 3
 
 
+def test_declared_miss_carries_source_and_dedups_by_key(root, monkeypatch):
+    monkeypatch.setattr(embed, "embed_texts", lambda texts: [[1.0, 0.0] for _ in texts])
+    ledger.append(
+        root, "feedback", None, verdict="miss", note="graphite retry backoff",
+        source="docs/90-scaling.md", key="investigate:retry-backoff",
+    )
+    assert ledger.has_key(root, "investigate:retry-backoff")
+    assert not ledger.has_key(root, "investigate:other")
+    clusters = report.bounties(root, 30)
+    assert clusters[0]["sources"] == ["docs/90-scaling.md"]
+
+
 def test_demand_for_counts_prior_signals(root, monkeypatch):
     def fake(texts):
         return [[1.0, 0.0] if t.startswith("graphite") else [0.0, 1.0] for t in texts]
