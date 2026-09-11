@@ -18,11 +18,11 @@ memoryfield tooling can read it. The index is a cache: delete it and
 
 Knowledge with no single home in code. If a fact belongs to one module,
 write it there, in a comment or a doc beside the code. `mem` is for what
-crosses those boundaries: incidents and their root causes, decisions and the
-reasons behind them, quirks of tools and vendors, the shape of a system that
-spans repos, and the preferences of the people you work with. The test for a
-page: a future reader finds it faster here than by re-deriving it from
-source.
+crosses those boundaries. That means incidents and their root causes,
+decisions and the reasons behind them, and quirks of tools and vendors. It
+also means the shape of a system that spans repos, and the preferences of
+the people you work with. The test for a page: a future reader finds it
+faster here than by re-deriving it from source.
 
 ## Setup
 
