@@ -35,6 +35,29 @@ uv tool install --editable .
 mem init            # creates ~/memories; override with MEM_ROOT
 ```
 
+## Agent skill
+
+[`skills/mem/SKILL.md`](skills/mem/SKILL.md) teaches an agent the loop:
+search first, rate what it read, record what it learned. Install it into
+your harness's skills directory:
+
+```bash
+npx skills add adamsanghera/mem           # skills-compatible harnesses
+cp -r skills/mem ~/.cursor/skills/mem     # Cursor
+cp -r skills/mem ~/.claude/skills/mem     # Claude Code
+```
+
+Skills load when their description matches the task. For guaranteed
+awareness, add a few lines to the file your agent always reads (AGENTS.md,
+CLAUDE.md, or an always-on rule):
+
+```markdown
+You have persistent memory through the `mem` CLI. Search it before
+unfamiliar work (`mem search "..."`), rate the pages you read once the
+outcome is known (`mem feedback`), and save non-obvious learnings before
+wrapping up (`mem add`). Details in the mem skill.
+```
+
 ## Writing and recalling
 
 ```bash
