@@ -88,8 +88,8 @@ sources. Never store secrets or credentials. Never edit the sqlite index or
 
 ## Wrap-up, before the final summary
 
-1. Read memories this session? Rate each one.
-2. Any write trigger fired? Save the page now.
+1. If you read memories this session, rate each one.
+2. If a write trigger fired, save the page now.
 3. Mention each save in the summary as "saved memory: <title>" so the user
    can veto or refine it.
 
