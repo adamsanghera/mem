@@ -272,8 +272,8 @@ def stats(r: Path) -> dict:
         text = p.read_text(encoding="utf-8")
         fm, _ = corpus.parse_frontmatter(text)
         f = fresh.freshness(p.name, fm or {}, text, grouped.get(p.name, []))
-        due_claims += len(f.due) + (1 if f.coarse_due else 0)
-        unverified_claims += len(f.unverified)
+        due_claims += len(f.due)
+        unverified_claims += len(f.unverified) + (1 if f.unmarked else 0)
 
     n = len(page_paths)
     return {

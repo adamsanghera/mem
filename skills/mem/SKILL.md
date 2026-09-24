@@ -40,8 +40,8 @@ problem, then write the page that should have existed.
 
 Every hit and every shown page carries a freshness line, for example
 `fast · 2 claims due · 1 unverified`. A due or unverified claim is a
-hypothesis until you check it against its source. Stale pages are shown,
-never hidden.
+hypothesis until you check it against its source, and a page with no
+markers at all reads as unverified. Stale pages are shown, never hidden.
 
 ## 2. Report back (required whenever you read memories)
 

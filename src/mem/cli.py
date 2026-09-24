@@ -405,6 +405,8 @@ def cmd_verify(args) -> None:
         seen_ids = [m.id for m in markers if m.id and m.kind in ("unverified", "verified")]
         for dup in sorted({i for i in seen_ids if seen_ids.count(i) > 1}):
             warnings.append(f"claim id {dup!r} used more than once: {path.name}")
+        if not seen_ids and fresh.volatility_for(fm or {}, path.name, markers) != "stable":
+            warnings.append(f"no claim markers, reads as unverified: {path.name}")
         size = path.stat().st_size
         if size > corpus.PAGE_LIMIT:
             problems.append(f"over the {corpus.PAGE_LIMIT}B page limit ({size}B): {path.name}")

@@ -45,11 +45,16 @@ class Marker:
     error: str | None = None
 
 
+CODE_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+
+
 def parse_markers(text: str) -> list[Marker]:
     """All freshness markers in a text, malformed ones carrying an error.
-    Other scaffold-docs markers (NOTE(boundary:), TODO(author:)) are ignored."""
+    Markers inside code spans or fenced blocks are documentation of the
+    grammar, not claims, and are skipped. Other scaffold-docs markers
+    (NOTE(boundary:), TODO(author:)) are ignored."""
     markers = []
-    for m in MARKER_RE.finditer(text):
+    for m in MARKER_RE.finditer(CODE_RE.sub(" ", text)):
         family, kind, rest = m.group(1), m.group(2), m.group(3)
         parts = rest.split(":")
         if family == "NOTE" and kind == "unverified":
@@ -78,6 +83,9 @@ def volatility_for(fm: dict, filename: str, markers: list[Marker]) -> str:
     declared = str(fm.get("volatility") or "").lower()
     if declared in HALF_LIFE_DAYS:
         return declared
+    tags = fm.get("tags") or []
+    if filename == "index.md" or (isinstance(tags, list) and "skill-card" in tags):
+        return "stable"  # pointers, not claims
     if any(m.kind == "as-of" for m in markers):
         return "stable"
     title = f"{fm.get('title', '')} {filename}"
@@ -94,11 +102,14 @@ class Freshness:
     due: list[str] = field(default_factory=list)
     unverified: list[str] = field(default_factory=list)
     confirmed_age_days: int | None = None
-    coarse_due: bool = False
+    # A non-stable page with no markers never said which of its claims were
+    # observed, so pessimism treats the whole page as unverified until
+    # someone marks it. Stable pages (events, decisions, pointers) are exempt.
+    unmarked: bool = False
 
     @property
     def is_due(self) -> bool:
-        return bool(self.due or self.unverified or self.coarse_due)
+        return bool(self.due or self.unverified or self.unmarked)
 
     def line(self) -> str:
         parts = [self.volatility]
@@ -109,9 +120,9 @@ class Freshness:
                 parts.append(f"{len(self.unverified)} unverified")
             if not self.due and not self.unverified:
                 parts.append(f"{self.claims} verified")
-        elif self.half_life_days is not None and self.confirmed_age_days is not None:
-            prefix = "due, " if self.coarse_due else ""
-            parts.append(f"{prefix}confirmed {self.confirmed_age_days}d ago")
+        elif self.unmarked:
+            age = f", last edit {self.confirmed_age_days}d ago" if self.confirmed_age_days is not None else ""
+            parts.append(f"unmarked, treat as unverified{age}")
         return " · ".join(parts)
 
 
@@ -154,7 +165,7 @@ def freshness(
                 last = when
     if last is not None:
         result.confirmed_age_days = (today - last).days
-        result.coarse_due = half_life is not None and result.confirmed_age_days > half_life
+    result.unmarked = half_life is not None
     return result
 
 

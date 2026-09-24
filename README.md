@@ -118,8 +118,10 @@ TODO(investigate:deploy-cut-times)      a declared gap; becomes a bounty
 ```
 
 A page's `volatility` (`fast` 14d, `slow` 90d by default, `stable` never)
-sets how long a verified claim holds before it comes due. Pages with no
-markers fall back to the age of their last edit or confirming verdict.
+sets how long a verified claim holds before it comes due. The default is
+pessimistic: a non-stable page with no markers never said which of its
+claims were observed, so it reads as unverified until someone marks it.
+Confidence of wording is not evidence; the burden of proof is on the page.
 Every search hit and shown page prints a freshness line, for example
 `fast · 2 claims due · 1 unverified`. Nothing is hidden or reranked:
 staleness is shown, and the reader checks the claim at the moment they

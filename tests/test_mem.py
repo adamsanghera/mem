@@ -141,17 +141,24 @@ def test_freshness_due_rules():
     obs = fresh.freshness("t.md", {}, observation, [], today)
     assert obs.volatility == "stable" and not obs.is_due
 
+    # pessimistic default: a non-stable page with no markers reads as unverified,
+    # however recently it was edited or confirmed
     plain = "---\ntitle: T\n---\n\nno markers here"
-    old = fresh.freshness("t.md", {"updated": "2026-06-01T00:00:00Z"}, plain, [], today)
-    assert old.coarse_due and old.confirmed_age_days == 115
+    unmarked = fresh.freshness("t.md", {"updated": "2026-09-23T00:00:00Z"}, plain, [], today)
+    assert unmarked.unmarked and unmarked.is_due and unmarked.confirmed_age_days == 1
+    assert "unmarked" in unmarked.line()
     confirming = [{"event": "feedback", "verdict": "solved", "ts": "2026-09-20T00:00:00Z"}]
-    fresh_again = fresh.freshness(
-        "t.md", {"updated": "2026-06-01T00:00:00Z"}, plain, confirming, today
-    )
-    assert not fresh_again.coarse_due and fresh_again.confirmed_age_days == 4
+    still = fresh.freshness("t.md", {"updated": "2026-06-01T00:00:00Z"}, plain, confirming, today)
+    assert still.unmarked and still.is_due
 
     incident = fresh.freshness("cev-1541-incident.md", {"title": "An incident"}, plain, [], today)
-    assert incident.volatility == "stable"
+    assert incident.volatility == "stable" and not incident.is_due
+    card = fresh.freshness("skill-x.md", {"tags": ["skill-card"]}, plain, [], today)
+    assert card.volatility == "stable" and not card.is_due
+
+    # grammar documentation inside code spans is not a claim
+    documented = "---\ntitle: T\n---\n\nuse `NOTE(unverified:<id>)` like this NOTE(verified:real:2026-09-20)."
+    assert [m.id for m in fresh.parse_markers(documented)] == ["real"]
 
 
 def test_stamp_verified_is_idempotent(tmp_path):
@@ -187,7 +194,7 @@ def test_feedback_verified_with_claim_stamps_and_logs(root, fake_embed):
 def test_stale_orders_by_heat(root, fake_embed):
     a = corpus.new_page(root, "A", "x NOTE(unverified:one)")
     b = corpus.new_page(root, "B", "y NOTE(unverified:two)")
-    corpus.new_page(root, "C", "fine, no claims")
+    corpus.new_page(root, "C", "a decision record, no live claims", volatility="stable")
     for _ in range(3):
         ledger.append(root, "read", b.name)
     rows = fresh.stale(root)
@@ -219,12 +226,14 @@ def test_verify_flags_pages_past_the_embedding_budget(root, capsys):
 
     from mem import cli
 
-    corpus.new_page(root, "Short", "fine")
-    corpus.new_page(root, "Long", "x" * (corpus.EMBED_BYTE_BUDGET + 100))
+    corpus.new_page(root, "Short", "fine", volatility="stable")
+    corpus.new_page(root, "Long", "x" * (corpus.EMBED_BYTE_BUDGET + 100), volatility="stable")
+    corpus.new_page(root, "Bare", "a live claim with no markers")
     cli.cmd_verify(argparse.Namespace())
     out = capsys.readouterr().out
     assert "long.md" in out and "embedding budget" in out
-    assert "0 problems, 1 warnings" in out
+    assert "bare.md" in out and "reads as unverified" in out
+    assert "0 problems, 2 warnings" in out
 
 
 def test_slugify_and_filename_rules():
