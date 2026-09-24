@@ -11,9 +11,26 @@ import zipfile
 from pathlib import Path
 from typing import NoReturn
 
-from . import corpus, index, ledger, report
+from . import corpus, embed, index, ledger, report
 
 GITIGNORE = "nomic-embed-text-v1.5.sqlite3\n"
+
+SKILL_URL = "https://raw.githubusercontent.com/adamsanghera/mem/main/skills/mem/SKILL.md"
+
+NEXT_STEPS = f"""
+next steps:
+  1. install the agent skill for your harness (any directory of <name>/SKILL.md works):
+       mkdir -p ~/.cursor/skills/mem && curl -fsSL {SKILL_URL} -o ~/.cursor/skills/mem/SKILL.md
+       Claude Code: same file into ~/.claude/skills/mem/SKILL.md
+  2. add to the file your agent always reads (AGENTS.md, CLAUDE.md, or a rule):
+       You have persistent memory through the `mem` CLI. Start every session with
+       `mem prime --for "<the task>"`. Search before unfamiliar work (mem search),
+       rate the pages you read once the outcome is known (mem feedback), and save
+       non-obvious learnings before wrapping up (mem add).
+  3. write the first memory:
+       mem add --title "..." --summary "..." --citations "..." --text "..."
+  4. mem prime
+"""
 
 # union-merge the ledger: concurrent appends from different machines are both
 # kept, which is the correct resolution for an append-only event log
@@ -55,7 +72,10 @@ def cmd_init(args) -> None:
         evals.write_text("# - query: ...\n#   expect: some-page.md\n#   top: 3\n", encoding="utf-8")
     if not (r / ".git").is_dir():
         subprocess.run(["git", "init", "-q"], cwd=r, check=True)
-    print(f"initialized memoryfield at {r}")
+    print(f"initialized memory corpus at {r}")
+    _ready, message = embed.status()
+    print(message)
+    print(NEXT_STEPS)
 
 
 def cmd_add(args) -> None:

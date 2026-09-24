@@ -24,16 +24,30 @@ also means the shape of a system that spans repos, and the preferences of
 the people you work with. The test for a page: a future reader finds it
 faster here than by re-deriving it from source.
 
-## Setup
+## Quick start
 
-Requires a running [ollama](https://ollama.com) and
-[uv](https://docs.astral.sh/uv/).
+macOS or Linux. Every step is safe to re-run. An agent can execute this
+block as-is.
 
 ```bash
+# 1. uv (runs the CLI) and ollama (local embeddings), if missing
+command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+if ! command -v ollama >/dev/null; then
+  if command -v brew >/dev/null; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi
+fi
+command -v brew >/dev/null && brew services start ollama   # Linux installer starts its own service
+
+# 2. the embedding model (270MB, one time)
 ollama pull nomic-embed-text
-uv tool install --editable .
-mem init            # creates ~/memories; override with MEM_ROOT
+
+# 3. mem itself, and an empty corpus at ~/memories (override with MEM_ROOT)
+uv tool install git+https://github.com/adamsanghera/mem
+mem init
 ```
+
+`mem init` checks that ollama is serving with the model present and prints
+the remaining steps: installing the agent skill and adding the always-on
+snippet. Developing mem itself: clone, then `uv tool install --editable .`.
 
 ## Agent skill
 
@@ -42,9 +56,11 @@ search first, rate what it read, record what it learned. Install it into
 your harness's skills directory:
 
 ```bash
+# Cursor (no clone needed); Claude Code uses ~/.claude/skills/mem/SKILL.md
+mkdir -p ~/.cursor/skills/mem && curl -fsSL \
+  https://raw.githubusercontent.com/adamsanghera/mem/main/skills/mem/SKILL.md \
+  -o ~/.cursor/skills/mem/SKILL.md
 npx skills add adamsanghera/mem           # skills-compatible harnesses
-cp -r skills/mem ~/.cursor/skills/mem     # Cursor
-cp -r skills/mem ~/.claude/skills/mem     # Claude Code
 ```
 
 Skills load when their description matches the task. For guaranteed

@@ -30,6 +30,33 @@ def fake_embed(monkeypatch):
     return calls
 
 
+def test_embedding_status(monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    def down(*_a, **_k):
+        raise urllib.error.URLError("refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    ready, message = embed.status()
+    assert not ready and "not reachable" in message
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen",
+        lambda *_a, **_k: Resp(b'{"models": [{"name": "nomic-embed-text:latest"}]}'),
+    )
+    ready, message = embed.status()
+    assert ready and "present" in message
+
+
 def test_slugify_and_filename_rules():
     assert corpus.slugify("Carbon Fibre Woks!") == "carbon-fibre-woks"
     assert corpus.FILENAME_RE.match("carbon-fibre-woks.md")

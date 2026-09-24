@@ -14,8 +14,25 @@ MODEL_CODE = "nomic-embed-text-v1.5"
 OLLAMA_MODEL = "nomic-embed-text"
 
 
-def _base_url() -> str:
+def base_url() -> str:
     return os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+
+
+def status() -> tuple[bool, str]:
+    """(ready, one-line status) for the embedding backend: is ollama
+    reachable, and is the model pulled. Used by `mem init` so setup problems
+    surface before the first embed."""
+    try:
+        with urllib.request.urlopen(f"{base_url()}/api/tags", timeout=3) as resp:
+            models = [m.get("name", "") for m in json.load(resp).get("models", [])]
+    except (urllib.error.URLError, OSError, ValueError):
+        return False, (
+            f"ollama: not reachable at {base_url()}. Start it (`ollama serve`, or "
+            "`brew services start ollama` on macOS), then: ollama pull nomic-embed-text"
+        )
+    if any(name.startswith(OLLAMA_MODEL) for name in models):
+        return True, f"ollama: serving at {base_url()}, {OLLAMA_MODEL} present"
+    return False, f"ollama: serving, but {OLLAMA_MODEL} is missing. Run: ollama pull {OLLAMA_MODEL}"
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -24,7 +41,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         {"model": OLLAMA_MODEL, "input": texts, "truncate": True}
     ).encode("utf-8")
     req = urllib.request.Request(
-        f"{_base_url()}/api/embed",
+        f"{base_url()}/api/embed",
         data=body,
         headers={"Content-Type": "application/json"},
     )
