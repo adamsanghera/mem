@@ -84,10 +84,15 @@ mem show pg-vacuum-quirk.md
 mem add --title "Pg vacuum quirk" \
   --summary "One sentence for search results." \
   --citations "https://source,path/to/code" \
-  --text "One topic, under 8KB, with citations."
+  --text "One topic, under 6KB, with citations."
 mem feedback solved pg-vacuum-quirk.md --note "exact fix applied"
 mem reindex         # after hand-editing pages; --full re-embeds everything
 ```
+
+Keep a page under about 6KB. Ollama embeds only the first 2048 tokens (about
+6KB of technical prose) and drops the rest silently, so a longer page is
+still readable but unfindable by its tail. `mem add` and `mem verify` warn
+past that budget; 8KB is the hard limit.
 
 `mem prime` is the session-start briefing, in about 700 tokens: pages
 tagged `prime` (standing orders every session should know exist), the

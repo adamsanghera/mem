@@ -16,6 +16,13 @@ from pathlib import Path
 import yaml
 
 PAGE_LIMIT = 8192
+
+# Only the first 2048 tokens of a page reach the embedding: ollama loads
+# nomic-embed-text with a 2048-token context by default and ignores a
+# per-request num_ctx on /api/embed, silently truncating with truncate=true.
+# Dense technical prose measures ~3 bytes/token, so 2048 tokens is ~6.2KB.
+# Pages past this budget are still readable but unfindable by their tail.
+EMBED_BYTE_BUDGET = 6000
 FILENAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.md$")
 DEBRIS = {".DS_Store", "desktop.ini", "Thumbs.db"}
 

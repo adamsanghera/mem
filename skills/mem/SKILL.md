@@ -85,11 +85,12 @@ is the unwritten one.
 mem add --title "Short specific title" \
   --summary "One sentence for search results." \
   --citations "https://source,path/or/id" \
-  --text "One topic. Prose. Under 8KB. Cite sources."
+  --text "One topic. Prose. Under 6KB. Cite sources."
 ```
 
-Rules: one topic per page, and split rather than exceed 8KB. Always cite
-sources. Never store secrets or credentials. Never edit the sqlite index or
+Rules: one topic per page, under about 6KB. Only the first 2048 tokens of a
+page are embedded, so a longer page is unfindable by its tail: split it
+instead. Always cite sources. Never store secrets or credentials. Never edit the sqlite index or
 `meta/ledger.jsonl` by hand. Run `mem reindex` after hand-editing a page.
 
 ## Wrap-up, before the final summary

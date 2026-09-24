@@ -98,10 +98,11 @@ def cmd_add(args) -> None:
         citations=args.citations.split(",") if args.citations else None,
     )
     size = path.stat().st_size
-    if size > corpus.PAGE_LIMIT:
+    if size > corpus.EMBED_BYTE_BUDGET:
         print(
-            f"warning: {path.name} is {size}B (> {corpus.PAGE_LIMIT}B); "
-            "only the first 8192 bytes are embedded — consider splitting",
+            f"warning: {path.name} is {size}B, past the ~{corpus.EMBED_BYTE_BUDGET}B "
+            "embedding budget (2048 tokens). Its tail is unsearchable: split it "
+            "into pages of one topic each.",
             file=sys.stderr,
         )
     index.upsert_page(r, path)
@@ -337,8 +338,14 @@ def cmd_verify(args) -> None:
             if u in uuids:
                 problems.append(f"duplicate uuid {u}: {path.name} and {uuids[u]}")
             uuids[u] = path.name
-        if path.stat().st_size > corpus.PAGE_LIMIT:
-            warnings.append(f"over {corpus.PAGE_LIMIT}B (embed truncated): {path.name}")
+        size = path.stat().st_size
+        if size > corpus.PAGE_LIMIT:
+            problems.append(f"over the {corpus.PAGE_LIMIT}B page limit ({size}B): {path.name}")
+        elif size > corpus.EMBED_BYTE_BUDGET:
+            warnings.append(
+                f"past the ~{corpus.EMBED_BYTE_BUDGET}B embedding budget ({size}B), "
+                f"tail unsearchable: {path.name}"
+            )
     for line in problems + warnings:
         print(line)
     print(f"{len(problems)} problems, {len(warnings)} warnings")

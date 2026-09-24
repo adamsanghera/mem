@@ -57,6 +57,19 @@ def test_embedding_status(monkeypatch):
     assert ready and "present" in message
 
 
+def test_verify_flags_pages_past_the_embedding_budget(root, capsys):
+    import argparse
+
+    from mem import cli
+
+    corpus.new_page(root, "Short", "fine")
+    corpus.new_page(root, "Long", "x" * (corpus.EMBED_BYTE_BUDGET + 100))
+    cli.cmd_verify(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "long.md" in out and "embedding budget" in out
+    assert "0 problems, 1 warnings" in out
+
+
 def test_slugify_and_filename_rules():
     assert corpus.slugify("Carbon Fibre Woks!") == "carbon-fibre-woks"
     assert corpus.FILENAME_RE.match("carbon-fibre-woks.md")
