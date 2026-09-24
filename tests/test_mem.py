@@ -85,7 +85,8 @@ def test_add_rejects_pages_the_model_cannot_fully_embed(root, monkeypatch):
 
     monkeypatch.setattr(embed, "embed_texts", refuse)
     args = argparse.Namespace(
-        title="Too long", text="y" * 7000, file=None, summary=None, tags=None, citations=None
+        title="Too long", text="y" * 7000, file=None, summary=None, tags=None,
+        citations=None, volatility=None,
     )
     with pytest.raises(SystemExit) as exc:
         cli.cmd_add(args)
@@ -99,10 +100,12 @@ def test_add_writes_and_indexes_when_the_page_fits(root, fake_embed):
     from mem import cli
 
     args = argparse.Namespace(
-        title="Fits", text="short body", file=None, summary="s", tags=None, citations=None
+        title="Fits", text="short body", file=None, summary="s", tags=None,
+        citations=None, volatility="fast",
     )
     cli.cmd_add(args)
     assert [p.name for p in corpus.pages(root)] == ["fits.md"]
+    assert "volatility: fast" in (root / "fits.md").read_text()
     assert index.search(root, "short", 1)[0].filename == "fits.md"
 
 
