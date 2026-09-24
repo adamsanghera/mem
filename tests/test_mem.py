@@ -153,6 +153,28 @@ def test_declared_miss_carries_source_and_dedups_by_key(root, monkeypatch):
     assert clusters[0]["sources"] == ["docs/90-scaling.md"]
 
 
+def test_prime_briefing(root, fake_embed, monkeypatch):
+    monkeypatch.setenv("CURSOR_CONVERSATION_ID", "conv-prime")
+    standing = corpus.new_page(root, "House rules", "always cite", summary="Standing.", tags=["prime"])
+    card = corpus.new_page(root, "Skill: prose", "pointer", summary="Write plainly.", tags=["skill-card"])
+    organic = corpus.new_page(root, "Vacuum quirk", "details")
+    index.reindex(root)
+    for _ in range(3):
+        ledger.append(root, "read", organic.name)
+    ledger.append(root, "search_hit", card.name, query="q", score=0.2)
+    ledger.append(root, "feedback", card.name, verdict="solved")
+
+    briefing = report.prime(root, task="vacuum")
+    assert [p["filename"] for p in briefing["standing"]] == [standing.name]
+    assert briefing["hot"] == [{"filename": organic.name, "hits": 3}]  # cards excluded
+    assert briefing["skills"][0]["filename"] == card.name
+    assert briefing["skills"][0]["helpful"] == 1
+    assert len(briefing["task"]) == 3
+
+    ledger.append(root, "prime", None, query="vacuum")
+    assert report.stats(root)["primed_sessions_7d"] == 1
+
+
 def test_demand_for_counts_prior_signals(root, monkeypatch):
     def fake(texts):
         return [[1.0, 0.0] if t.startswith("graphite") else [0.0, 1.0] for t in texts]

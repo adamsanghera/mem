@@ -229,6 +229,45 @@ def cmd_hot(args) -> None:
             )
 
 
+def cmd_prime(args) -> None:
+    r = corpus.root()
+    briefing = report.prime(r, args.task)
+    ledger.append(r, "prime", None, query=args.task)
+    if args.json:
+        print(json.dumps(briefing, indent=2))
+        return
+
+    print("memory briefing (mem prime). Read any page with: mem show <filename>")
+    if briefing["standing"]:
+        print("\nstanding orders (know these exist; read when relevant):")
+        for page in briefing["standing"]:
+            print(f"  {page['filename']}")
+            if page["summary"]:
+                print(f"    {page['summary']}")
+    if briefing["hot"]:
+        print("\nhot this fortnight (what other sessions leaned on):")
+        for page in briefing["hot"]:
+            print(f"  {page['hits']:>3}  {page['filename']}")
+    if briefing["skills"]:
+        print("\nskills that helped recently (read the card, then the skill it points to):")
+        for card in briefing["skills"]:
+            print(f"  {card['filename']}  ({card['helpful']} helpful)")
+            if card["summary"]:
+                print(f"    {card['summary']}")
+    if briefing["bounties"]:
+        print("\nopen bounties (pages someone wanted; close one if your task touches it):")
+        for bounty in briefing["bounties"]:
+            print(f"  x{bounty['count']}  {bounty['text']!r}")
+    if briefing["task"]:
+        print("\nrelevant to your task:")
+        for hit in briefing["task"]:
+            print(f"  {hit['distance']:.3f}  {hit['filename']}")
+    print(
+        "\nthe loop: mem search before unfamiliar work · mem feedback <verdict> <pages> "
+        "once the outcome is known · mem add what a future session would want"
+    )
+
+
 def cmd_bounties(args) -> None:
     clusters = report.bounties(corpus.root(), args.window_days)
     if args.json:
@@ -349,6 +388,14 @@ def main() -> None:
     p.add_argument("--min-hits", type=int, default=5)
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_hot)
+
+    p = sub.add_parser(
+        "prime",
+        help="session-start briefing: standing pages, recent heat, helpful skills, bounties",
+    )
+    p.add_argument("--for", dest="task", help="the task at hand; adds the top hits for it")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_prime)
 
     p = sub.add_parser("bounties", help="unmet-demand board: weak searches + misses, clustered")
     p.add_argument("--window-days", type=int, default=90)

@@ -52,15 +52,17 @@ awareness, add a few lines to the file your agent always reads (AGENTS.md,
 CLAUDE.md, or an always-on rule):
 
 ```markdown
-You have persistent memory through the `mem` CLI. Search it before
-unfamiliar work (`mem search "..."`), rate the pages you read once the
-outcome is known (`mem feedback`), and save non-obvious learnings before
-wrapping up (`mem add`). Details in the mem skill.
+You have persistent memory through the `mem` CLI. Start every session with
+`mem prime --for "<the task>"`. Search before unfamiliar work
+(`mem search "..."`), rate the pages you read once the outcome is known
+(`mem feedback`), and save non-obvious learnings before wrapping up
+(`mem add`). Details in the mem skill.
 ```
 
 ## Writing and recalling
 
 ```bash
+mem prime --for "the task in one line"
 mem search "why is vacuum slow" -k 8
 mem show pg-vacuum-quirk.md
 mem add --title "Pg vacuum quirk" \
@@ -71,6 +73,10 @@ mem feedback solved pg-vacuum-quirk.md --note "exact fix applied"
 mem reindex         # after hand-editing pages; --full re-embeds everything
 ```
 
+`mem prime` is the session-start briefing, in about 700 tokens: pages
+tagged `prime` (standing orders every session should know exist), the
+pages other sessions leaned on this fortnight, skills whose cards earned
+helpful verdicts this month, open bounties, and the top hits for the task.
 Search and show log every hit and read. `mem feedback` rates a recall once
 the task outcome is known. The verdicts: solved, partial, context,
 unrelated, outdated, and miss. A miss takes no page name: it records that

@@ -149,6 +149,94 @@ def demand_for(r: Path, query: str, window_days: int = 90) -> Counter:
     return counts
 
 
+# Pages tagged this are "standing orders": every session should know they
+# exist, read on demand. Curated by hand or by the consolidator.
+PRIME_TAG = "prime"
+PRIME_CAPS = {"standing": 8, "hot": 5, "skills": 5, "bounties": 3, "task": 3}
+PRIME_SUMMARY_CHARS = 110
+HELPFUL_VERDICTS = ("solved", "partial", "context")
+
+
+def _page_meta(r: Path) -> dict[str, dict]:
+    meta = {}
+    for p in corpus.pages(r):
+        fm, _ = corpus.parse_frontmatter(p.read_text(encoding="utf-8"))
+        meta[p.name] = fm or {}
+    return meta
+
+
+def _tags(fm: dict) -> list[str]:
+    tags = fm.get("tags") or []
+    return [str(t) for t in tags] if isinstance(tags, list) else [str(tags)]
+
+
+def _clip(text, limit: int = PRIME_SUMMARY_CHARS) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def prime(r: Path, task: str | None = None) -> dict:
+    """Session-start briefing: standing pages, recent heat, skills that
+    helped, open bounties, and hits for the task if given. Filenames and
+    clipped summaries only, with hard caps, so it stays near 700 tokens.
+    Sections that need the embedding model degrade to empty rather than
+    failing: priming must never block a session from starting."""
+    meta = _page_meta(r)
+    cards = {f for f, fm in meta.items() if "skill-card" in _tags(fm)}
+
+    standing = [
+        {"filename": f, "summary": _clip(fm.get("summary"))}
+        for f, fm in sorted(meta.items())
+        if PRIME_TAG in _tags(fm)
+    ][: PRIME_CAPS["standing"]]
+
+    heat: Counter = Counter()
+    for e in ledger.load(r, 14):
+        f = e.get("filename")
+        if e["event"] in ("read", "search_hit") and f in meta and f not in cards:
+            heat[f] += 1
+    hot = [{"filename": f, "hits": n} for f, n in heat.most_common(PRIME_CAPS["hot"])]
+
+    helped: Counter = Counter()
+    for e in ledger.load(r, 30):
+        if (
+            e["event"] == "feedback"
+            and e.get("filename") in cards
+            and e.get("verdict") in HELPFUL_VERDICTS
+        ):
+            helped[e["filename"]] += 1
+    skills = [
+        {"filename": f, "helpful": n, "summary": _clip(meta[f].get("summary"))}
+        for f, n in helped.most_common(PRIME_CAPS["skills"])
+    ]
+
+    try:
+        open_bounties = [
+            {"text": c["texts"][0], "count": c["count"]}
+            for c in bounties(r, 90)[: PRIME_CAPS["bounties"]]
+        ]
+    except RuntimeError:
+        open_bounties = []
+
+    relevant = []
+    if task:
+        try:
+            relevant = [
+                {"filename": h.filename, "distance": round(h.distance, 3)}
+                for h in index.search(r, task, PRIME_CAPS["task"])
+            ]
+        except RuntimeError:
+            relevant = []
+
+    return {
+        "standing": standing,
+        "hot": hot,
+        "skills": skills,
+        "bounties": open_bounties,
+        "task": relevant,
+    }
+
+
 def stats(r: Path) -> dict:
     page_paths = corpus.pages(r)
     sizes = [p.stat().st_size for p in page_paths]
@@ -187,6 +275,9 @@ def stats(r: Path) -> dict:
         "searches_7d": searches_this_week,
         "active_sessions_7d": len(
             {e["session"] for e in week if e.get("session")}
+        ),
+        "primed_sessions_7d": len(
+            {e["session"] for e in week if e["event"] == "prime" and e.get("session")}
         ),
         "surfaced_pages_30d": len(surfaced_30d),
         "read_through_30d_pct": (

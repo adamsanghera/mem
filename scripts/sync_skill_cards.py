@@ -34,10 +34,37 @@ CARD_PREFIX = "skill-"
 SUMMARY_LIMIT = 200
 
 
+def _salvage_frontmatter(block: str) -> dict:
+    """Recover name/description from frontmatter that is not valid YAML,
+    typically an unquoted description containing ': '. Continuation lines
+    (indented, or after a > / | block indicator) are folded in."""
+    out: dict = {}
+    lines = block.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^(name|description):\s*(.*)$", line)
+        if not m:
+            continue
+        key, value = m.group(1), m.group(2).strip()
+        if value in (">", ">-", "|", "|-"):
+            value = ""
+        continuation = []
+        for nxt in lines[i + 1 :]:
+            if nxt.startswith((" ", "\t")):
+                continuation.append(nxt.strip())
+            else:
+                break
+        out[key] = " ".join([value, *continuation]).strip()
+    return out
+
+
 def parse_skill(path: Path) -> tuple[str, str]:
     """Return (name, description) from a SKILL.md, tolerating bare files."""
     text = path.read_text(encoding="utf-8", errors="ignore")
     fm, body = corpus.parse_frontmatter(text)
+    if fm is None and text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        block, body = (text[4:end], text[end + 5 :]) if end != -1 else ("", text)
+        fm = _salvage_frontmatter(block)
     fm = fm or {}
     name = str(fm.get("name") or path.parent.name)
     description = str(fm.get("description") or "").strip()

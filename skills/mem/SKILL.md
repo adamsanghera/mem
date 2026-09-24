@@ -22,9 +22,15 @@ The loop: search, read, work, report back, record what is new.
 ## 1. Recall
 
 ```bash
+mem prime --for "the task in one line"
 mem search "the question, phrased naturally" -k 8
 mem show <filename> <filename>
 ```
+
+`mem prime` is the first command of every session. It lists the standing
+pages every session should know about, what other sessions leaned on
+recently, which skills recently helped (load the ones that fit the task),
+open bounties, and the top hits for your task.
 
 Search before starting work in an area you have not touched this session,
 and whenever an error looks like something seen before. Lower distance is a
