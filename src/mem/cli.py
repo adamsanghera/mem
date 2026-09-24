@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import NoReturn
 
-from . import corpus, embed, index, ledger, report
+from . import corpus, embed, fresh, index, ledger, report
 
 GITIGNORE = "nomic-embed-text-v1.5.sqlite3\n"
 
@@ -96,6 +96,7 @@ def cmd_add(args) -> None:
         summary=args.summary,
         tags=args.tags.split(",") if args.tags else None,
         citations=args.citations.split(",") if args.citations else None,
+        volatility=args.volatility,
     )
     raw = text.encode("utf-8")
     if len(raw) > corpus.PAGE_LIMIT:
@@ -160,10 +161,13 @@ def cmd_search(args) -> None:
     if not hits:
         print("no results")
         return
+    events = ledger.load(r)
     for hit in hits:
         title = _fm_str(hit.frontmatter, "title") or hit.filename
         summary = _fm_str(hit.frontmatter, "summary")
-        print(f"{hit.distance:.3f}  {hit.filename}  {title}")
+        f = fresh.page_freshness(r, hit.filename, events)
+        badge = f"  [{f.line()}]" if f else ""
+        print(f"{hit.distance:.3f}  {hit.filename}  {title}{badge}")
         if summary:
             print(f"       {summary}")
     print("\nread with: mem show <filename> (parallel calls are fine)")
@@ -199,6 +203,15 @@ def cmd_show(args) -> None:
         if len(args.refs) > 1:
             print(f"===== {path.name} =====")
         print(text)
+        f = fresh.page_freshness(r, path.name)
+        if f:
+            hint = (
+                " Due or unverified claims are hypotheses until you check them; "
+                "then `mem feedback verified <page> --claim <id>`."
+                if f.is_due
+                else ""
+            )
+            print(f"[mem] freshness: {f.line()}.{hint}")
 
 
 def cmd_feedback(args) -> None:
@@ -218,10 +231,19 @@ def cmd_feedback(args) -> None:
         return
     if not args.refs:
         _die("pass at least one page (filename or uuid)")
+    if args.claim and len(args.refs) != 1:
+        _die("--claim names one claim in one page; pass a single page")
     for ref in args.refs:
         path = corpus.resolve(r, ref)
         if path is None:
             _die(f"no page {ref!r}")
+        if args.verdict == "verified" and args.claim:
+            if not fresh.stamp_verified(path, args.claim):
+                _die(
+                    f"no NOTE(unverified:{args.claim}) or NOTE(verified:{args.claim}:...) "
+                    f"marker in {path.name}; add one beside the claim first"
+                )
+            index.upsert_page(r, path)
         fm, _ = corpus.parse_frontmatter(path.read_text(encoding="utf-8"))
         ledger.append(
             r,
@@ -230,8 +252,10 @@ def cmd_feedback(args) -> None:
             uuid=_fm_str(fm or {}, "uuid") or None,
             verdict=args.verdict,
             note=args.note,
+            claim=args.claim,
         )
-        print(f"{args.verdict}: {path.name}")
+        suffix = f" (claim {args.claim})" if args.claim else ""
+        print(f"{args.verdict}: {path.name}{suffix}")
 
 
 def cmd_reindex(args) -> None:
@@ -268,17 +292,23 @@ def cmd_prime(args) -> None:
         print(json.dumps(briefing, indent=2))
         return
 
+    events = ledger.load(r)
+
+    def badge(filename: str) -> str:
+        f = fresh.page_freshness(r, filename, events)
+        return f"  [{f.line()}]" if f and f.is_due else ""
+
     print("memory briefing (mem prime). Read any page with: mem show <filename>")
     if briefing["standing"]:
         print("\nstanding orders (know these exist; read when relevant):")
         for page in briefing["standing"]:
-            print(f"  {page['filename']}")
+            print(f"  {page['filename']}{badge(page['filename'])}")
             if page["summary"]:
                 print(f"    {page['summary']}")
     if briefing["hot"]:
         print("\nhot this fortnight (what other sessions leaned on):")
         for page in briefing["hot"]:
-            print(f"  {page['hits']:>3}  {page['filename']}")
+            print(f"  {page['hits']:>3}  {page['filename']}{badge(page['filename'])}")
     if briefing["skills"]:
         print("\nskills that helped recently (read the card, then the skill it points to):")
         for card in briefing["skills"]:
@@ -292,10 +322,30 @@ def cmd_prime(args) -> None:
     if briefing["task"]:
         print("\nrelevant to your task:")
         for hit in briefing["task"]:
-            print(f"  {hit['distance']:.3f}  {hit['filename']}")
+            print(f"  {hit['distance']:.3f}  {hit['filename']}{badge(hit['filename'])}")
     print(
         "\nthe loop: mem search before unfamiliar work · mem feedback <verdict> <pages> "
         "once the outcome is known · mem add what a future session would want"
+    )
+
+
+def cmd_stale(args) -> None:
+    rows = fresh.stale(corpus.root(), args.window_days)
+    if args.json:
+        print(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        print("no pages with due or unverified claims")
+        return
+    for row in rows:
+        print(f"{row['hits']:>3} hits  {row['filename']}  [{row['freshness']}]")
+        for claim in row["unverified"]:
+            print(f"           unverified: {claim}")
+        for claim in row["due"]:
+            print(f"           due: {claim}")
+    print(
+        "\nverify a claim against its source, then: mem feedback verified <page> --claim <id>. "
+        "Wrong? Fix the text, then: mem feedback outdated <page> --claim <id> --note '...'"
     )
 
 
@@ -348,6 +398,13 @@ def cmd_verify(args) -> None:
             if u in uuids:
                 problems.append(f"duplicate uuid {u}: {path.name} and {uuids[u]}")
             uuids[u] = path.name
+        markers = fresh.parse_markers(text)
+        for marker in markers:
+            if marker.error:
+                warnings.append(f"malformed marker {marker.raw} ({marker.error}): {path.name}")
+        seen_ids = [m.id for m in markers if m.id and m.kind in ("unverified", "verified")]
+        for dup in sorted({i for i in seen_ids if seen_ids.count(i) > 1}):
+            warnings.append(f"claim id {dup!r} used more than once: {path.name}")
         size = path.stat().st_size
         if size > corpus.PAGE_LIMIT:
             problems.append(f"over the {corpus.PAGE_LIMIT}B page limit ({size}B): {path.name}")
@@ -385,6 +442,11 @@ def main() -> None:
     p.add_argument("--summary")
     p.add_argument("--tags", help="comma-separated")
     p.add_argument("--citations", help="comma-separated URLs/paths")
+    p.add_argument(
+        "--volatility",
+        choices=list(fresh.HALF_LIFE_DAYS),
+        help="how fast the page's claims decay: fast (14d), slow (90d, default), stable (never)",
+    )
     p.add_argument("--text", help="body as an argument (else file/stdin)")
     p.add_argument("file", nargs="?", help="body file, or - for stdin")
     p.set_defaults(fn=cmd_add)
@@ -410,6 +472,10 @@ def main() -> None:
     p.add_argument("verdict", choices=list(ledger.VERDICTS))
     p.add_argument("refs", nargs="*", help="page filename(s) or uuid(s); none for miss")
     p.add_argument("--note", help="why — expected for partial/unrelated/outdated/miss")
+    p.add_argument(
+        "--claim",
+        help="the claim id this verdict is about; with verified, stamps the page's marker",
+    )
     p.add_argument("--source", help="miss only: where the gap was declared (a spec, doc, or thread)")
     p.add_argument(
         "--key", help="miss only: stable id for a declared gap; re-registering it is a no-op"
@@ -433,6 +499,11 @@ def main() -> None:
     p.add_argument("--for", dest="task", help="the task at hand; adds the top hits for it")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_prime)
+
+    p = sub.add_parser("stale", help="pages with due or unverified claims, hottest first")
+    p.add_argument("--window-days", type=int, default=30, help="heat window for ordering")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_stale)
 
     p = sub.add_parser("bounties", help="unmet-demand board: weak searches + misses, clustered")
     p.add_argument("--window-days", type=int, default=90)

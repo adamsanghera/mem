@@ -7,7 +7,9 @@ import time
 
 import pytest
 
-from mem import corpus, embed, index, ledger, report
+from pathlib import Path
+
+from mem import corpus, embed, fresh, index, ledger, report
 
 
 @pytest.fixture
@@ -102,6 +104,111 @@ def test_add_writes_and_indexes_when_the_page_fits(root, fake_embed):
     cli.cmd_add(args)
     assert [p.name for p in corpus.pages(root)] == ["fits.md"]
     assert index.search(root, "short", 1)[0].filename == "fits.md"
+
+
+def test_parse_markers_all_kinds_and_malformed():
+    text = (
+        "x NOTE(unverified:pool-count) y NOTE(verified:cap-at-boot:2026-09-24) "
+        "z NOTE(as-of:2026-09-22) w TODO(investigate:deploy-cut-times) "
+        "bad NOTE(verified:no-date) other NOTE(boundary:ignored)"
+    )
+    markers = fresh.parse_markers(text)
+    ok = {(m.kind, m.id, m.date) for m in markers if not m.error}
+    assert ("unverified", "pool-count", None) in ok
+    assert ("verified", "cap-at-boot", "2026-09-24") in ok
+    assert ("as-of", None, "2026-09-22") in ok
+    assert ("investigate", "deploy-cut-times", None) in ok
+    assert [m.raw for m in markers if m.error] == ["NOTE(verified:no-date)"]
+    assert not any(m.kind == "boundary" for m in markers)
+
+
+def test_freshness_due_rules():
+    from datetime import date
+
+    today = date(2026, 9, 24)
+    page = "---\ntitle: T\n---\n\nA NOTE(verified:a:2026-09-01). B NOTE(unverified:b)."
+    fast = fresh.freshness("t.md", {"volatility": "fast"}, page, [], today)
+    assert fast.due == ["a"] and fast.unverified == ["b"] and fast.is_due
+    slow = fresh.freshness("t.md", {"volatility": "slow"}, page, [], today)
+    assert slow.due == [] and slow.unverified == ["b"]
+    stable = fresh.freshness("t.md", {"volatility": "stable"}, page, [], today)
+    assert stable.due == []
+
+    observation = "---\ntitle: T\n---\n\nseen NOTE(as-of:2026-09-01)"
+    obs = fresh.freshness("t.md", {}, observation, [], today)
+    assert obs.volatility == "stable" and not obs.is_due
+
+    plain = "---\ntitle: T\n---\n\nno markers here"
+    old = fresh.freshness("t.md", {"updated": "2026-06-01T00:00:00Z"}, plain, [], today)
+    assert old.coarse_due and old.confirmed_age_days == 115
+    confirming = [{"event": "feedback", "verdict": "solved", "ts": "2026-09-20T00:00:00Z"}]
+    fresh_again = fresh.freshness(
+        "t.md", {"updated": "2026-06-01T00:00:00Z"}, plain, confirming, today
+    )
+    assert not fresh_again.coarse_due and fresh_again.confirmed_age_days == 4
+
+    incident = fresh.freshness("cev-1541-incident.md", {"title": "An incident"}, plain, [], today)
+    assert incident.volatility == "stable"
+
+
+def test_stamp_verified_is_idempotent(tmp_path):
+    from datetime import date
+
+    page = tmp_path / "p.md"
+    page.write_text("---\ntitle: T\n---\n\nX NOTE(unverified:cap) Y")
+    assert fresh.stamp_verified(page, "cap", date(2026, 9, 24))
+    assert "NOTE(verified:cap:2026-09-24)" in page.read_text()
+    assert fresh.stamp_verified(page, "cap", date(2026, 10, 1))
+    text = page.read_text()
+    assert text.count("NOTE(") == 1 and "2026-10-01" in text
+    assert not fresh.stamp_verified(page, "missing", date(2026, 10, 1))
+
+
+def test_feedback_verified_with_claim_stamps_and_logs(root, fake_embed):
+    import argparse
+
+    from mem import cli
+
+    page = corpus.new_page(root, "Cap", "The cap is 250 NOTE(unverified:cap).", summary="s")
+    index.reindex(root)
+    cli.cmd_feedback(
+        argparse.Namespace(
+            verdict="verified", refs=[page.name], note=None, claim="cap", source=None, key=None
+        )
+    )
+    assert "NOTE(verified:cap:" in page.read_text()
+    event = ledger.load(root)[-1]
+    assert event["verdict"] == "verified" and event["claim"] == "cap"
+
+
+def test_stale_orders_by_heat(root, fake_embed):
+    a = corpus.new_page(root, "A", "x NOTE(unverified:one)")
+    b = corpus.new_page(root, "B", "y NOTE(unverified:two)")
+    corpus.new_page(root, "C", "fine, no claims")
+    for _ in range(3):
+        ledger.append(root, "read", b.name)
+    rows = fresh.stale(root)
+    assert [row["filename"] for row in rows] == [b.name, a.name]
+    assert rows[0]["unverified"] == ["two"]
+
+
+def test_marker_miner_is_idempotent(root, tmp_path):
+    import importlib.util
+
+    script = Path(__file__).resolve().parent.parent / "scripts" / "mine_markers.py"
+    spec = importlib.util.spec_from_file_location("mine_markers", script)
+    miner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(miner)
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "plan.md").write_text("Open: TODO(investigate:deploy-cut-times) when does prod cut?\n")
+    assert miner.mine(root, [docs]) == (1, 0)
+    assert miner.mine(root, [docs]) == (0, 1)
+    event = ledger.load(root)[-1]
+    assert event["verdict"] == "miss"
+    assert event["key"] == "investigate:deploy-cut-times"
+    assert "prod cut" in event["note"]
 
 
 def test_verify_flags_pages_past_the_embedding_budget(root, capsys):

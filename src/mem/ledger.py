@@ -25,6 +25,7 @@ VERDICTS = {
     "context": "helpful background; didn't itself solve anything",
     "unrelated": "surfaced but irrelevant to the task",
     "outdated": "relevant but stale or wrong; needs correction",
+    "verified": "checked a claim against its source and it holds (with --claim <id>)",
     "miss": "nothing useful was found for this need (no page ref)",
 }
 

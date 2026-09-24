@@ -105,6 +105,32 @@ unrelated, outdated, and miss. A miss takes no page name: it records that
 nothing useful existed. A search with no close match logs the same kind of
 gap on its own.
 
+## Freshness
+
+Pages carry their uncertainty inline, next to the claim, with the marker
+grammar scaffold-style doc trees also use:
+
+```
+NOTE(unverified:pool-count)             a hypothesis; due for checking now
+NOTE(verified:pool-count:2026-09-24)    checked against its source that day
+NOTE(as-of:2026-09-22)                  an observation; ages, never wrong
+TODO(investigate:deploy-cut-times)      a declared gap; becomes a bounty
+```
+
+A page's `volatility` (`fast` 14d, `slow` 90d by default, `stable` never)
+sets how long a verified claim holds before it comes due. Pages with no
+markers fall back to the age of their last edit or confirming verdict.
+Every search hit and shown page prints a freshness line, for example
+`fast · 2 claims due · 1 unverified`. Nothing is hidden or reranked:
+staleness is shown, and the reader checks the claim at the moment they
+are about to act on it.
+
+```bash
+mem feedback verified <page> --claim pool-count   # stamps the marker with today
+mem stale                                         # due or unverified claims, hottest first
+python scripts/mine_markers.py docs/              # TODO(investigate:) markers -> bounties
+```
+
 ## Reading the ledger
 
 ```bash

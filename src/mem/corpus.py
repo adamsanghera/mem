@@ -98,6 +98,7 @@ def render_page(
     summary: str | None = None,
     tags: list[str] | None = None,
     citations: list[str] | None = None,
+    volatility: str | None = None,
 ) -> tuple[Path, str]:
     """Build a new page's (path, full text) without writing it, so callers
     can validate the exact bytes that would be embedded before committing."""
@@ -114,6 +115,8 @@ def render_page(
         fm["tags"] = tags
     if citations:
         fm["citations"] = citations
+    if volatility:
+        fm["volatility"] = volatility
     path = r / unique_filename(r, slugify(title))
     return path, build_page(fm, body)
 

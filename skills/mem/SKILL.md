@@ -38,6 +38,11 @@ closer match, and under ~0.45 is usually relevant. If the CLI reports weak
 results, that search is now an open bounty: nothing close exists. Solve the
 problem, then write the page that should have existed.
 
+Every hit and every shown page carries a freshness line, for example
+`fast · 2 claims due · 1 unverified`. A due or unverified claim is a
+hypothesis until you check it against its source. Stale pages are shown,
+never hidden.
+
 ## 2. Report back (required whenever you read memories)
 
 Once the outcome is known, rate every page you read:
@@ -55,7 +60,12 @@ mem feedback miss --note "what was needed and did not exist"
 | `context`   | helpful background, not itself the answer            |
 | `unrelated` | surfaced but irrelevant to the task                  |
 | `outdated`  | relevant but stale or wrong, needs correction        |
+| `verified`  | you checked a claim against its source and it holds  |
 | `miss`      | nothing useful existed (takes no page name)          |
+
+Claim-level verdicts name the claim. `mem feedback verified <page> --claim
+<id>` stamps the page's marker with today's date. If a claim is wrong, fix
+the sentence first, then `mem feedback outdated <page> --claim <id> --note`.
 
 Add `--note` for anything other than solved or context. The note is what a
 later curation pass learns from. After a miss, write the missing page. If a
@@ -88,6 +98,15 @@ mem add --title "Short specific title" \
   --text "One topic. Prose. Under 6KB. Cite sources."
 ```
 
+Mark what you don't know, next to the claim: `NOTE(unverified:<id>)` on a
+hypothesis or unchecked claim, `NOTE(as-of:<YYYY-MM-DD>)` on an observation
+true as of a date, `TODO(investigate:<id>)` on a gap you saw but did not
+fill (it becomes a bounty). Ids are kebab-case and unique within the page.
+When you have checked a claim yourself, write
+`NOTE(verified:<id>:<YYYY-MM-DD>)`. Pass `--volatility fast` when the page
+states live-system values (config, counts, grants), `stable` for incidents,
+decisions and preferences. The default is `slow`.
+
 Rules: one topic per page, under about 6KB. The embedding model sees 2048
 tokens, and `mem add` refuses a page that does not fit, writing nothing:
 split it into pages of one topic each. Always cite sources. Never store secrets or credentials. Never edit the sqlite index or
@@ -97,12 +116,15 @@ split it into pages of one topic each. Always cite sources. Never store secrets 
 
 1. If you read memories this session, rate each one.
 2. If a write trigger fired, save the page now.
-3. Mention each save in the summary as "saved memory: <title>" so the user
+3. If you wrote anything as a hypothesis, settle it or mark it
+   `NOTE(unverified:<id>)`.
+4. Mention each save in the summary as "saved memory: <title>" so the user
    can veto or refine it.
 
 ## Maintenance, only when asked
 
-`mem hot` lists pages recalled often, with their verdicts. `mem bounties`
+`mem hot` lists pages recalled often, with their verdicts. `mem stale`
+lists pages with due or unverified claims, hottest first. `mem bounties`
 lists gaps: searches that found nothing and declared misses, clustered, and
 cleared once a page satisfies them. `mem stats` reports usage and the
 helpful rate. `mem eval` runs retrieval fixtures from `meta/evals.yaml`.

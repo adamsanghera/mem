@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import corpus, embed, index, ledger
+from . import corpus, embed, fresh, index, ledger
 
 # Pages whose embeddings sit within this cosine distance are reported as one
 # cluster: hot together, consolidated together.
@@ -266,6 +266,15 @@ def stats(r: Path) -> dict:
     rated = sum(v for k, v in verdicts_30d.items() if k != "miss")
     helpful = sum(verdicts_30d[k] for k in ("solved", "partial", "context"))
 
+    grouped = fresh.events_by_page(events)
+    due_claims = unverified_claims = 0
+    for p in page_paths:
+        text = p.read_text(encoding="utf-8")
+        fm, _ = corpus.parse_frontmatter(text)
+        f = fresh.freshness(p.name, fm or {}, text, grouped.get(p.name, []))
+        due_claims += len(f.due) + (1 if f.coarse_due else 0)
+        unverified_claims += len(f.unverified)
+
     n = len(page_paths)
     return {
         "pages": n,
@@ -289,6 +298,9 @@ def stats(r: Path) -> dict:
             " ".join(f"{k}={verdicts_30d[k]}" for k in sorted(verdicts_30d)) or "none"
         ),
         "weak_searches_30d": sum(1 for e in month if e["event"] == "weak_search"),
+        "verifications_30d": verdicts_30d["verified"],
+        "due_claims": due_claims,
+        "unverified_claims": unverified_claims,
         "helpful_rate_30d_pct": round(100 * helpful / rated) if rated else "n/a",
         "recall_misses_30d": verdicts_30d["miss"],
         "orphan_pages_pct": (
