@@ -29,10 +29,12 @@ VERDICTS = {
 }
 
 # A search whose best (lowest) cosine distance exceeds this found nothing
-# close: relevant pages land under ~0.45 with nomic-embed-text. Such
-# searches are auto-logged as weak_search events — revealed demand for a
-# memory that doesn't exist yet, aggregated by `mem bounties`.
-WEAK_BEST_DISTANCE = 0.5
+# close. Calibrated on a ~180-page corpus with nomic-embed-text: best-hit
+# distance was p50 0.32 / p95 0.47, and 0.45 flags about as many searches as
+# agents were already reporting as misses by hand. Such searches are
+# auto-logged as weak_search events — revealed demand for a memory that
+# doesn't exist yet, aggregated by `mem bounties`.
+WEAK_BEST_DISTANCE = 0.45
 
 
 def ledger_path(r: Path) -> Path:
