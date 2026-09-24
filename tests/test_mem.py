@@ -21,7 +21,7 @@ def root(tmp_path, monkeypatch):
 def fake_embed(monkeypatch):
     calls = []
 
-    def fake(texts):
+    def fake(texts, truncate=True):
         calls.append(texts)
         # deterministic tiny vectors keyed off text length
         return [[float(len(t) % 7), 1.0, 0.5] for t in texts]
@@ -55,6 +55,53 @@ def test_embedding_status(monkeypatch):
     )
     ready, message = embed.status()
     assert ready and "present" in message
+
+
+def test_embed_texts_raises_input_too_long_without_truncation(monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    def too_long(*_a, **_k):
+        raise urllib.error.HTTPError(
+            "http://x", 400, "Bad Request", None,
+            io.BytesIO(b'{"error":"the input length exceeds the context length"}'),
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", too_long)
+    with pytest.raises(embed.InputTooLong):
+        embed.embed_texts(["x" * 20000], truncate=False)
+
+
+def test_add_rejects_pages_the_model_cannot_fully_embed(root, monkeypatch):
+    import argparse
+
+    from mem import cli
+
+    def refuse(texts, truncate=True):
+        raise embed.InputTooLong("the input length exceeds the context length")
+
+    monkeypatch.setattr(embed, "embed_texts", refuse)
+    args = argparse.Namespace(
+        title="Too long", text="y" * 7000, file=None, summary=None, tags=None, citations=None
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.cmd_add(args)
+    assert exc.value.code == 1
+    assert corpus.pages(root) == []  # nothing written
+
+
+def test_add_writes_and_indexes_when_the_page_fits(root, fake_embed):
+    import argparse
+
+    from mem import cli
+
+    args = argparse.Namespace(
+        title="Fits", text="short body", file=None, summary="s", tags=None, citations=None
+    )
+    cli.cmd_add(args)
+    assert [p.name for p in corpus.pages(root)] == ["fits.md"]
+    assert index.search(root, "short", 1)[0].filename == "fits.md"
 
 
 def test_verify_flags_pages_past_the_embedding_budget(root, capsys):

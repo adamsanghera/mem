@@ -89,7 +89,7 @@ def cmd_add(args) -> None:
     if not body.strip():
         _die("empty memory body")
 
-    path = corpus.new_page(
+    path, text = corpus.render_page(
         r,
         title=args.title,
         body=body,
@@ -97,16 +97,26 @@ def cmd_add(args) -> None:
         tags=args.tags.split(",") if args.tags else None,
         citations=args.citations.split(",") if args.citations else None,
     )
-    size = path.stat().st_size
-    if size > corpus.EMBED_BYTE_BUDGET:
-        print(
-            f"warning: {path.name} is {size}B, past the ~{corpus.EMBED_BYTE_BUDGET}B "
-            "embedding budget (2048 tokens). Its tail is unsearchable: split it "
-            "into pages of one topic each.",
-            file=sys.stderr,
+    raw = text.encode("utf-8")
+    if len(raw) > corpus.PAGE_LIMIT:
+        _die(
+            f"page would be {len(raw)}B, over the {corpus.PAGE_LIMIT}B limit. "
+            "Nothing written. Split it into pages of one topic each."
         )
-    index.upsert_page(r, path)
-    fm, _ = corpus.parse_frontmatter(path.read_text(encoding="utf-8"))
+    # embed the exact bytes first, without truncation: a page the index
+    # cannot fully represent is rejected rather than written with an
+    # unsearchable tail
+    try:
+        [vector] = embed.embed_texts([index.embed_input(raw)], truncate=False)
+    except embed.InputTooLong:
+        _die(
+            f"page would be {len(raw)}B, too long for the embedding model's "
+            "2048-token window (about 6KB of prose). Nothing written. Split it "
+            "into pages of one topic each."
+        )
+    path.write_text(text, encoding="utf-8")
+    index.insert_vector(r, path, vector)
+    fm, _ = corpus.parse_frontmatter(text)
     ledger.append(r, "write", path.name, uuid=_fm_str(fm or {}, "uuid") or None)
     print(f"wrote {path}")
 

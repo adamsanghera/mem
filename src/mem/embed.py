@@ -35,10 +35,18 @@ def status() -> tuple[bool, str]:
     return False, f"ollama: serving, but {OLLAMA_MODEL} is missing. Run: ollama pull {OLLAMA_MODEL}"
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed texts, raising RuntimeError with a fix-it hint on failure."""
+class InputTooLong(RuntimeError):
+    """The text exceeds the model's context window (2048 tokens by default);
+    raised only when embedding with truncate=False."""
+
+
+def embed_texts(texts: list[str], truncate: bool = True) -> list[list[float]]:
+    """Embed texts, raising RuntimeError with a fix-it hint on failure. With
+    truncate=False, over-long input raises InputTooLong instead of being
+    silently cut, which lets writers reject pages the index could not fully
+    represent."""
     body = json.dumps(
-        {"model": OLLAMA_MODEL, "input": texts, "truncate": True}
+        {"model": OLLAMA_MODEL, "input": texts, "truncate": truncate}
     ).encode("utf-8")
     req = urllib.request.Request(
         f"{base_url()}/api/embed",
@@ -48,6 +56,11 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             payload = json.load(resp)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        if e.code == 400 and "context length" in detail:
+            raise InputTooLong(detail) from e
+        raise RuntimeError(f"embedding failed: HTTP {e.code} {detail[:200]}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(
             f"embedding failed ({e}). Is ollama serving (`ollama serve`, or "

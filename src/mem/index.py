@@ -42,7 +42,9 @@ def open_index(r: Path) -> "sqlite3.Connection":
     return db
 
 
-def _embed_input(raw: bytes) -> str:
+def embed_input(raw: bytes) -> str:
+    """The exact text embedded for a page: the whole file, capped at the
+    page limit, with the model's document prefix."""
     return "search_document: " + raw[: corpus.PAGE_LIMIT].decode("utf-8", errors="ignore")
 
 
@@ -55,8 +57,14 @@ def _row_for(path: Path) -> tuple[str, str, bytes, bytes]:
 
 
 def upsert_page(r: Path, path: Path) -> None:
-    fm_json, mtime_iso, sha, raw = _row_for(path)
-    [vector] = embed.embed_texts([_embed_input(raw)])
+    raw = path.read_bytes()
+    [vector] = embed.embed_texts([embed_input(raw)])
+    insert_vector(r, path, vector)
+
+
+def insert_vector(r: Path, path: Path, vector: list[float]) -> None:
+    """Store an already-computed embedding for a page on disk."""
+    fm_json, mtime_iso, sha, _raw = _row_for(path)
     blob = sqlite_vec.serialize_float32(vector)
     with contextlib.closing(open_index(r)) as db:
         db.execute(

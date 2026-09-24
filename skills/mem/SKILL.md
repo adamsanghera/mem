@@ -88,9 +88,9 @@ mem add --title "Short specific title" \
   --text "One topic. Prose. Under 6KB. Cite sources."
 ```
 
-Rules: one topic per page, under about 6KB. Only the first 2048 tokens of a
-page are embedded, so a longer page is unfindable by its tail: split it
-instead. Always cite sources. Never store secrets or credentials. Never edit the sqlite index or
+Rules: one topic per page, under about 6KB. The embedding model sees 2048
+tokens, and `mem add` refuses a page that does not fit, writing nothing:
+split it into pages of one topic each. Always cite sources. Never store secrets or credentials. Never edit the sqlite index or
 `meta/ledger.jsonl` by hand. Run `mem reindex` after hand-editing a page.
 
 ## Wrap-up, before the final summary

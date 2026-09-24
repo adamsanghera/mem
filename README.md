@@ -91,8 +91,9 @@ mem reindex         # after hand-editing pages; --full re-embeds everything
 
 Keep a page under about 6KB. Ollama embeds only the first 2048 tokens (about
 6KB of technical prose) and drops the rest silently, so a longer page is
-still readable but unfindable by its tail. `mem add` and `mem verify` warn
-past that budget; 8KB is the hard limit.
+still readable but unfindable by its tail. `mem add` refuses a page the
+model cannot fully embed and writes nothing; `mem verify` lists existing
+pages past the budget.
 
 `mem prime` is the session-start briefing, in about 700 tokens: pages
 tagged `prime` (standing orders every session should know exist), the

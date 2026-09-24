@@ -91,14 +91,16 @@ def build_page(fm: dict, body: str) -> str:
     return f"---\n{dumped}---\n\n{body.strip()}\n"
 
 
-def new_page(
+def render_page(
     r: Path,
     title: str,
     body: str,
     summary: str | None = None,
     tags: list[str] | None = None,
     citations: list[str] | None = None,
-) -> Path:
+) -> tuple[Path, str]:
+    """Build a new page's (path, full text) without writing it, so callers
+    can validate the exact bytes that would be embedded before committing."""
     ts = now_iso()
     fm: dict = {
         "title": title,
@@ -112,9 +114,13 @@ def new_page(
         fm["tags"] = tags
     if citations:
         fm["citations"] = citations
-    filename = unique_filename(r, slugify(title))
-    path = r / filename
-    path.write_text(build_page(fm, body), encoding="utf-8")
+    path = r / unique_filename(r, slugify(title))
+    return path, build_page(fm, body)
+
+
+def new_page(r: Path, title: str, body: str, **kwargs) -> Path:
+    path, text = render_page(r, title, body, **kwargs)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
