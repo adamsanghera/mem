@@ -15,13 +15,14 @@ from . import corpus, embed, fresh, index, ledger, report
 
 GITIGNORE = "nomic-embed-text-v1.5.sqlite3\n"
 
-SKILL_URL = "https://raw.githubusercontent.com/adamsanghera/mem/main/skills/mem/SKILL.md"
+SKILLS_URL = "https://raw.githubusercontent.com/adamsanghera/mem/main/skills"
 
 NEXT_STEPS = f"""
 next steps:
-  1. install the agent skill for your harness (any directory of <name>/SKILL.md works):
-       mkdir -p ~/.cursor/skills/mem && curl -fsSL {SKILL_URL} -o ~/.cursor/skills/mem/SKILL.md
-       Claude Code: same file into ~/.claude/skills/mem/SKILL.md
+  1. install the agent skills for your harness (any directory of <name>/SKILL.md works):
+       for s in mem mem-consolidate; do mkdir -p ~/.cursor/skills/$s && \\
+         curl -fsSL {SKILLS_URL}/$s/SKILL.md -o ~/.cursor/skills/$s/SKILL.md; done
+       Claude Code: same files under ~/.claude/skills/<name>/SKILL.md
   2. add to the file your agent always reads (AGENTS.md, CLAUDE.md, or a rule):
        You have persistent memory through the `mem` CLI. Start every session with
        `mem prime --for "<the task>"`. Search before unfamiliar work (mem search),

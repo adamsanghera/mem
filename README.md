@@ -49,17 +49,23 @@ mem init
 the remaining steps: installing the agent skill and adding the always-on
 snippet. Developing mem itself: clone, then `uv tool install --editable .`.
 
-## Agent skill
+## Agent skills
 
-[`skills/mem/SKILL.md`](skills/mem/SKILL.md) teaches an agent the loop:
-search first, rate what it read, record what it learned. Install it into
-your harness's skills directory:
+Two skills ship with the tool. [`skills/mem/SKILL.md`](skills/mem/SKILL.md)
+teaches an agent the daily loop: search first, rate what it read, record
+what it learned, mark what it does not know.
+[`skills/mem-consolidate/SKILL.md`](skills/mem-consolidate/SKILL.md) is the
+maintenance pass: corrections, splits, verification of due claims,
+cross-links, bounties, proposals, and the commit. Install both into your
+harness's skills directory:
 
 ```bash
-# Cursor (no clone needed); Claude Code uses ~/.claude/skills/mem/SKILL.md
-mkdir -p ~/.cursor/skills/mem && curl -fsSL \
-  https://raw.githubusercontent.com/adamsanghera/mem/main/skills/mem/SKILL.md \
-  -o ~/.cursor/skills/mem/SKILL.md
+# Cursor (no clone needed); Claude Code uses ~/.claude/skills/<name>/SKILL.md
+for s in mem mem-consolidate; do
+  mkdir -p ~/.cursor/skills/$s && curl -fsSL \
+    https://raw.githubusercontent.com/adamsanghera/mem/main/skills/$s/SKILL.md \
+    -o ~/.cursor/skills/$s/SKILL.md
+done
 npx skills add adamsanghera/mem           # skills-compatible harnesses
 ```
 
