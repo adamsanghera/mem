@@ -221,6 +221,49 @@ def test_marker_miner_is_idempotent(root, tmp_path):
     assert "prod cut" in event["note"]
 
 
+def test_browser_api_list_graph_save_and_no_read_logging(root, fake_embed, monkeypatch):
+    from mem import browser
+
+    a = corpus.new_page(root, "Alpha", "alpha NOTE(unverified:one)", tags=["x"], volatility="fast")
+    corpus.new_page(root, "Beta", "beta text", volatility="stable")
+    corpus.new_page(root, "Skill: c", "pointer", tags=["skill-card"])
+    index.reindex(root)
+    ledger.append(root, "read", a.name)
+    before = len(ledger.load(root))
+
+    pages = browser.list_pages(root)
+    assert {p["filename"] for p in pages} == {"alpha.md", "beta.md", "skill-c.md"}
+    alpha = next(p for p in pages if p["filename"] == "alpha.md")
+    assert alpha["heat"] == 1 and alpha["due"] and alpha["volatility"] == "fast"
+
+    g = browser.graph(root)
+    assert {n["id"] for n in g["nodes"]} == {"alpha.md", "beta.md", "skill-c.md"}
+    assert all(l["source"] != l["target"] for l in g["links"])
+    assert next(n for n in g["nodes"] if n["id"] == "skill-c.md")["card"]
+
+    page = browser.get_page(root, "alpha.md")
+    assert "NOTE(unverified:one)" in page["text"] and page["events"][-1]["event"] == "read"
+    browser.search(root, "alpha topic")
+    assert len(ledger.load(root)) == before  # browsing logs nothing
+
+    saved = browser.save_page(root, "alpha.md", page["text"].replace("alpha ", "alpha edited "))
+    assert "edited" in a.read_text() and saved["filename"] == "alpha.md"
+    assert ledger.load(root)[-1]["event"] == "write"  # saving does log
+
+    with pytest.raises(browser.SaveError):
+        browser.save_page(root, "alpha.md", "---\ntitle: [broken\n---\n\nbody")
+    with pytest.raises(browser.SaveError):
+        browser.save_page(root, "../escape.md", "body")
+
+    def refuse(texts, truncate=True):
+        raise embed.InputTooLong("the input length exceeds the context length")
+
+    monkeypatch.setattr(embed, "embed_texts", refuse)
+    with pytest.raises(browser.SaveError):
+        browser.save_page(root, "alpha.md", "---\ntitle: T\n---\n\n" + "y" * 7000)
+    assert browser.ASSET.is_file()
+
+
 def test_verify_flags_pages_past_the_embedding_budget(root, capsys):
     import argparse
 

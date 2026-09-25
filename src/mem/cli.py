@@ -350,6 +350,12 @@ def cmd_stale(args) -> None:
     )
 
 
+def cmd_browse(args) -> None:
+    from . import browser
+
+    browser.serve(corpus.root(), args.port, open_browser=not args.no_open)
+
+
 def cmd_bounties(args) -> None:
     clusters = report.bounties(corpus.root(), args.window_days)
     if args.json:
@@ -502,6 +508,11 @@ def main() -> None:
     p.add_argument("--for", dest="task", help="the task at hand; adds the top hits for it")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_prime)
+
+    p = sub.add_parser("browse", help="local web app: cluster map, page list, editor")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-open", action="store_true", help="don't open the browser")
+    p.set_defaults(fn=cmd_browse)
 
     p = sub.add_parser("stale", help="pages with due or unverified claims, hottest first")
     p.add_argument("--window-days", type=int, default=30, help="heat window for ordering")

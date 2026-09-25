@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mem</title>
+<style>
+  :root { color-scheme: dark; --bg:#111318; --panel:#181b22; --line:#2a2f3a; --fg:#d7dae0; --dim:#8a9099;
+          --fast:#f0a35a; --slow:#6ea8fe; --stable:#63c28a; --due:#ff6b6b; --card:#555b66; }
+  * { box-sizing: border-box; }
+  body { margin:0; height:100vh; display:grid; grid-template-columns: 300px 1fr 460px; font: 13px/1.4 ui-monospace, Menlo, monospace; background:var(--bg); color:var(--fg); }
+  aside, main, section { height:100vh; overflow:hidden; }
+  aside { border-right:1px solid var(--line); display:flex; flex-direction:column; }
+  section { border-left:1px solid var(--line); display:flex; flex-direction:column; }
+  header { padding:10px 12px; border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; }
+  input[type=search] { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--fg); padding:6px 8px; border-radius:4px; font:inherit; }
+  #list { overflow:auto; flex:1; }
+  .row { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .row:hover, .row.sel { background:var(--panel); }
+  .row .t { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .m { color:var(--dim); font-size:11px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .fast{background:var(--fast)} .slow{background:var(--slow)} .stable{background:var(--stable)}
+  .due { color:var(--due); }
+  main { position:relative; }
+  svg { width:100%; height:100%; display:block; }
+  #legend { position:absolute; left:12px; bottom:10px; color:var(--dim); font-size:11px; }
+  #legend label { margin-left:12px; cursor:pointer; }
+  .tip { position:absolute; pointer-events:none; background:var(--panel); border:1px solid var(--line); padding:4px 8px; border-radius:4px; font-size:12px; max-width:360px; display:none; }
+  #detail { display:flex; flex-direction:column; height:100%; }
+  #meta { padding:10px 12px; border-bottom:1px solid var(--line); color:var(--dim); font-size:12px; }
+  #meta b { color:var(--fg); font-weight:600; }
+  textarea { flex:1; width:100%; resize:none; border:0; outline:0; padding:12px; background:var(--bg); color:var(--fg); font:inherit; }
+  #bar { padding:8px 12px; border-top:1px solid var(--line); display:flex; gap:8px; align-items:center; }
+  button { background:var(--panel); border:1px solid var(--line); color:var(--fg); padding:6px 12px; border-radius:4px; font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--fg); }
+  #status { color:var(--dim); flex:1; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #events { max-height:140px; overflow:auto; border-top:1px solid var(--line); padding:6px 12px; color:var(--dim); font-size:11px; }
+  #events div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style>
+</head>
+<body>
+<aside>
+  <header><input id="q" type="search" placeholder="search (semantic) or filter…" autocomplete="off"><span id="count" style="color:var(--dim)"></span></header>
+  <div id="list"></div>
+</aside>
+<main>
+  <svg></svg>
+  <div class="tip" id="tip"></div>
+  <div id="legend">
+    <span class="dot fast"></span>fast <span class="dot slow"></span>slow <span class="dot stable"></span>stable
+    <span style="color:var(--due)">◯ due</span> · size = heat (30d)
+    <label><input type="checkbox" id="cards"> show skill cards</label>
+  </div>
+</main>
+<section id="detail">
+  <div id="meta">select a page</div>
+  <textarea id="text" spellcheck="false"></textarea>
+  <div id="events"></div>
+  <div id="bar"><span id="status">browsing logs no usage events; saving logs a write and re-embeds</span><button id="save" disabled>save</button></div>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+const api = (p, o) => fetch(p, o).then(r => r.json());
+let pages = [], byName = {}, selected = null, matchSet = null, showCards = false;
+let sim, nodeSel, linkSel, graphData;
+
+const listEl = document.getElementById('list'), q = document.getElementById('q');
+const metaEl = document.getElementById('meta'), textEl = document.getElementById('text');
+const saveBtn = document.getElementById('save'), statusEl = document.getElementById('status'), eventsEl = document.getElementById('events');
+
+function renderList() {
+  const filter = q.value.trim().toLowerCase();
+  const rows = pages.filter(p => (showCards || !p.tags.includes('skill-card')))
+    .filter(p => matchSet ? matchSet.has(p.filename) : (!filter || (p.title + ' ' + p.filename + ' ' + p.summary).toLowerCase().includes(filter)))
+    .sort((a, b) => matchSet ? (matchSet.get(a.filename) - matchSet.get(b.filename)) : (b.heat - a.heat) || a.filename.localeCompare(b.filename));
+  document.getElementById('count').textContent = rows.length;
+  listEl.innerHTML = rows.map(p => `<div class="row ${p.filename === selected ? 'sel' : ''}" data-f="${p.filename}">
+    <span class="t"><span class="dot ${p.volatility}"></span>${esc(p.title)}</span>
+    <span class="m">${p.heat} hits · ${esc(p.freshness)}${p.due ? ' <span class="due">◯</span>' : ''}</span></div>`).join('');
+}
+listEl.addEventListener('click', e => { const r = e.target.closest('.row'); if (r) select(r.dataset.f); });
+
+async function select(f) {
+  selected = f; renderList(); highlight();
+  const p = await api('/api/page/' + encodeURIComponent(f));
+  if (p.error) { statusEl.textContent = p.error; return; }
+  metaEl.innerHTML = `<b>${esc(f)}</b><br>${esc(p.freshness)}${p.due ? ' <span class="due">· due or unverified claims are hypotheses until checked</span>' : ''}`;
+  textEl.value = p.text; saveBtn.disabled = false; statusEl.textContent = 'saving logs a write and re-embeds; browsing never logs';
+  eventsEl.innerHTML = p.events.slice().reverse().map(e => `<div>${e.ts.slice(0, 16)} ${e.event}${e.verdict ? ' ' + e.verdict : ''}${e.claim ? ' (' + esc(e.claim) + ')' : ''}${e.query ? ' “' + esc(e.query) + '”' : ''}${e.note ? ' — ' + esc(e.note) : ''}</div>`).join('') || '<div>no ledger events yet</div>';
+}
+
+saveBtn.onclick = async () => {
+  saveBtn.disabled = true; statusEl.textContent = 'saving…';
+  const r = await api('/api/page/' + encodeURIComponent(selected), { method: 'PUT', body: textEl.value });
+  saveBtn.disabled = false;
+  if (r.error) { statusEl.textContent = 'rejected: ' + r.error; return; }
+  statusEl.textContent = 'saved · ' + r.freshness;
+  metaEl.innerHTML = `<b>${esc(selected)}</b><br>${esc(r.freshness)}`;
+  await reload();
+};
+
+let searchTimer;
+q.addEventListener('input', () => {
+  clearTimeout(searchTimer); matchSet = null; renderList(); highlight();
+  const v = q.value.trim();
+  if (v.split(/\s+/).length >= 2) searchTimer = setTimeout(async () => {
+    const hits = await api('/api/search?q=' + encodeURIComponent(v));
+    if (Array.isArray(hits)) { matchSet = new Map(hits.map((h, i) => [h.filename, i])); renderList(); highlight(); }
+  }, 350);
+});
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+const color = v => ({ fast: 'var(--fast)', slow: 'var(--slow)', stable: 'var(--stable)' })[v] || 'var(--card)';
+
+function drawGraph(g) {
+  graphData = g;
+  const svg = d3.select('svg'); svg.selectAll('*').remove();
+  const W = svg.node().clientWidth, H = svg.node().clientHeight;
+  const root = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.2, 6]).on('zoom', e => root.attr('transform', e.transform)));
+  const visible = n => showCards || !n.card;
+  const nodes = g.nodes.filter(visible), ids = new Set(nodes.map(n => n.id));
+  const links = g.links.filter(l => ids.has(l.source.id || l.source) && ids.has(l.target.id || l.target));
+  sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(l => 40 + l.distance * 220).strength(l => 1 - l.distance))
+    .force('charge', d3.forceManyBody().strength(-60))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collide', d3.forceCollide(d => radius(d) + 2));
+  linkSel = root.append('g').attr('stroke', '#2f3542').selectAll('line').data(links).join('line').attr('stroke-width', l => 2.5 - l.distance * 3);
+  nodeSel = root.append('g').selectAll('circle').data(nodes).join('circle')
+    .attr('r', radius).attr('fill', d => color(d.card ? 'card' : d.volatility))
+    .attr('stroke', d => d.due ? 'var(--due)' : '#0b0d11').attr('stroke-width', d => d.due ? 2 : 1)
+    .style('cursor', 'pointer')
+    .on('click', (_, d) => select(d.id))
+    .on('mousemove', (e, d) => { const t = document.getElementById('tip'); t.style.display = 'block'; t.style.left = (e.offsetX + 14) + 'px'; t.style.top = (e.offsetY + 14) + 'px'; t.textContent = d.title; })
+    .on('mouseleave', () => document.getElementById('tip').style.display = 'none')
+    .call(d3.drag().on('start', (e, d) => { sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+  sim.on('tick', () => {
+    linkSel.attr('x1', l => l.source.x).attr('y1', l => l.source.y).attr('x2', l => l.target.x).attr('y2', l => l.target.y);
+    nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
+  });
+  highlight();
+}
+const radius = d => 4 + Math.sqrt(d.heat || 0) * 2.2;
+function highlight() {
+  if (!nodeSel) return;
+  nodeSel.attr('opacity', d => (matchSet && !matchSet.has(d.id)) ? 0.12 : 1)
+    .attr('stroke', d => d.id === selected ? '#ffffff' : (d.due ? 'var(--due)' : '#0b0d11'))
+    .attr('stroke-width', d => d.id === selected ? 3 : (d.due ? 2 : 1));
+  if (linkSel) linkSel.attr('opacity', l => (matchSet && !(matchSet.has(l.source.id) && matchSet.has(l.target.id))) ? 0.15 : 0.9);
+}
+document.getElementById('cards').onchange = e => { showCards = e.target.checked; renderList(); drawGraph(graphData); };
+
+async function reload() {
+  pages = await api('/api/pages'); byName = Object.fromEntries(pages.map(p => [p.filename, p]));
+  renderList(); drawGraph(await api('/api/graph'));
+}
+reload();
+</script>
+</body>
+</html>
