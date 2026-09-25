@@ -78,14 +78,50 @@ def get_page(r: Path, filename: str) -> dict | None:
     if path is None:
         return None
     text = path.read_text(encoding="utf-8")
-    fm, _ = corpus.parse_frontmatter(text)
+    fm, body = corpus.parse_frontmatter(text)
     events = [e for e in ledger.load(r) if e.get("filename") == path.name]
     f = fresh.freshness(path.name, fm or {}, text, events)
     recent = [
         {k: e.get(k) for k in ("ts", "event", "verdict", "claim", "note", "query", "session")}
         for e in events[-RECENT_EVENTS:]
     ]
-    return {"filename": path.name, "text": text, "freshness": f.line(), "due": f.is_due, "events": recent}
+    markers = [
+        {"kind": m.kind, "id": m.id, "date": m.date, "due": m.id in f.due, "raw": m.raw}
+        for m in fresh.parse_markers(body)
+        if not m.error
+    ]
+    return {
+        "filename": path.name,
+        "text": text,
+        "frontmatter": fm or {},
+        "freshness": f.line(),
+        "due": f.is_due,
+        "volatility": f.volatility,
+        "half_life_days": f.half_life_days,
+        "markers": markers,
+        "events": recent,
+    }
+
+
+def claim_feedback(r: Path, filename: str, verdict: str, claim: str, note: str | None) -> dict:
+    """A human's verdict on one claim from the browser: `verified` stamps the
+    marker and re-embeds, `outdated` records that the claim failed (the fix
+    itself is an edit). Both log, since these are verification signals."""
+    if verdict not in ("verified", "outdated"):
+        raise SaveError("verdict must be verified or outdated")
+    path = corpus.resolve(r, filename)
+    if path is None:
+        raise SaveError("no such page")
+    if verdict == "verified":
+        if not fresh.stamp_verified(path, claim):
+            raise SaveError(f"no marker for claim {claim!r}")
+        index.upsert_page(r, path)
+    fm, _ = corpus.parse_frontmatter(path.read_text(encoding="utf-8"))
+    ledger.append(
+        r, "feedback", path.name, uuid=str((fm or {}).get("uuid") or "") or None,
+        verdict=verdict, claim=claim, note=note or None,
+    )
+    return get_page(r, path.name)
 
 
 def save_page(r: Path, filename: str, text: str) -> dict:
@@ -198,22 +234,45 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"error": "not found"}, 404)
 
+    def _body(self) -> str:
+        length = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(length).decode("utf-8")
+
     def do_PUT(self) -> None:  # noqa: N802
         url = urlparse(self.path)
         if not url.path.startswith("/api/page/"):
             self._json({"error": "not found"}, 404)
             return
-        length = int(self.headers.get("Content-Length") or 0)
-        text = self.rfile.read(length).decode("utf-8")
         try:
-            self._json(save_page(self.root, unquote(url.path[len("/api/page/") :]), text))
+            self._json(save_page(self.root, unquote(url.path[len("/api/page/") :]), self._body()))
         except SaveError as e:
+            self._json({"error": str(e)}, 400)
+        except RuntimeError as e:
+            self._json({"error": str(e)}, 503)
+
+    def do_POST(self) -> None:  # noqa: N802
+        url = urlparse(self.path)
+        if url.path != "/api/claim":
+            self._json({"error": "not found"}, 404)
+            return
+        try:
+            req = json.loads(self._body() or "{}")
+            self._json(
+                claim_feedback(
+                    self.root, str(req.get("filename", "")), str(req.get("verdict", "")),
+                    str(req.get("claim", "")), req.get("note"),
+                )
+            )
+        except (SaveError, ValueError) as e:
             self._json({"error": str(e)}, 400)
         except RuntimeError as e:
             self._json({"error": str(e)}, 503)
 
 
 def serve(r: Path, port: int, open_browser: bool = True) -> None:
+    import os
+
+    os.environ.setdefault("MEM_SESSION", "browser")  # provenance for verdicts clicked here
     Handler.root = r
     server = None
     for candidate in range(port, port + 20):  # walk past ports another app holds

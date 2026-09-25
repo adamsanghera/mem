@@ -255,6 +255,17 @@ def test_browser_api_list_graph_save_and_no_read_logging(root, fake_embed, monke
     with pytest.raises(browser.SaveError):
         browser.save_page(root, "../escape.md", "body")
 
+    # claim verdicts from the UI: verified stamps + logs, outdated logs, unknown claim rejected
+    page = browser.get_page(root, "alpha.md")
+    assert page["markers"][0]["kind"] == "unverified" and page["markers"][0]["id"] == "one"
+    res = browser.claim_feedback(root, "alpha.md", "verified", "one", None)
+    assert res["markers"][0]["kind"] == "verified" and "NOTE(verified:one:" in a.read_text()
+    assert ledger.load(root)[-1]["verdict"] == "verified" and ledger.load(root)[-1]["claim"] == "one"
+    browser.claim_feedback(root, "alpha.md", "outdated", "one", "cap changed")
+    assert ledger.load(root)[-1]["verdict"] == "outdated" and ledger.load(root)[-1]["note"] == "cap changed"
+    with pytest.raises(browser.SaveError):
+        browser.claim_feedback(root, "alpha.md", "verified", "nope", None)
+
     def refuse(texts, truncate=True):
         raise embed.InputTooLong("the input length exceeds the context length")
 

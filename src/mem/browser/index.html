@@ -36,6 +36,31 @@
   #status { color:var(--dim); flex:1; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #events { max-height:140px; overflow:auto; border-top:1px solid var(--line); padding:6px 12px; color:var(--dim); font-size:11px; }
   #events div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #modes button { padding:3px 9px; font-size:11px; }
+  #modes button.on { border-color:var(--fg); background:#242935; }
+  #view { flex:1; overflow:auto; padding:14px 16px; font: 13.5px/1.55 ui-sans-serif, system-ui, sans-serif; display:none; }
+  #view h1,#view h2,#view h3 { font-size:1.05em; margin:1.1em 0 .4em; }
+  #view p { margin:.55em 0; }
+  #view code { font: 12px ui-monospace, Menlo, monospace; background:#20242d; padding:1px 4px; border-radius:3px; }
+  #view pre { background:#20242d; padding:8px 10px; border-radius:4px; overflow:auto; }
+  #view a { color:var(--slow); }
+  .fm { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:var(--dim); }
+  .fm h2 { margin:0 0 4px; font-size:14px; color:var(--fg); }
+  .fm .tag { display:inline-block; background:#242935; border-radius:10px; padding:0 7px; margin:2px 4px 0 0; font-size:11px; }
+  .fm .cite { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .claim { border-bottom:1px dotted #4a5262; }
+  .claim.v  { border-bottom-color:var(--stable); }
+  .claim.due{ border-bottom-color:var(--fast); }
+  .claim.u  { border-bottom-color:var(--due); }
+  .chip { display:inline-block; font: 10.5px ui-monospace, Menlo, monospace; border-radius:9px; padding:0 6px; margin-left:4px; vertical-align:baseline; cursor:pointer; white-space:nowrap; border:1px solid transparent; }
+  .chip.v  { background:#173323; color:var(--stable); border-color:#245a3a; }
+  .chip.due{ background:#3a2a12; color:var(--fast);   border-color:#6b4a1c; }
+  .chip.u  { background:#3a1a1c; color:var(--due);    border-color:#6b2c30; }
+  .chip.asof { background:#232833; color:var(--dim); border-color:#3a4150; cursor:default; }
+  .chip.todo { background:#2a2338; color:#c6a7ff;     border-color:#4c3d6e; cursor:default; }
+  #menu { position:absolute; display:none; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px; z-index:5; font-size:12px; min-width:220px; box-shadow:0 6px 24px #0008; }
+  #menu .h { color:var(--dim); margin-bottom:6px; }
+  #menu button { display:block; width:100%; text-align:left; margin-top:4px; }
 </style>
 </head>
 <body>
@@ -54,11 +79,18 @@
 </main>
 <section id="detail">
   <div id="meta">select a page</div>
+  <div id="view"></div>
   <textarea id="text" spellcheck="false"></textarea>
   <div id="events"></div>
-  <div id="bar"><span id="status">browsing logs no usage events; saving logs a write and re-embeds</span><button id="save" disabled>save</button></div>
+  <div id="bar">
+    <span id="modes"><button id="mRead" class="on">read</button><button id="mEdit">edit</button></span>
+    <span id="status">browsing logs no usage events; verdicts and saves do</span>
+    <button id="save" disabled>save</button>
+  </div>
 </section>
+<div id="menu"></div>
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <script>
 const api = (p, o) => fetch(p, o).then(r => r.json());
 let pages = [], byName = {}, selected = null, matchSet = null, showCards = false;
@@ -80,14 +112,93 @@ function renderList() {
 }
 listEl.addEventListener('click', e => { const r = e.target.closest('.row'); if (r) select(r.dataset.f); });
 
+let current = null, mode = 'read';
+const viewEl = document.getElementById('view'), menuEl = document.getElementById('menu');
+
 async function select(f) {
   selected = f; renderList(); highlight();
   const p = await api('/api/page/' + encodeURIComponent(f));
   if (p.error) { statusEl.textContent = p.error; return; }
+  current = p;
   metaEl.innerHTML = `<b>${esc(f)}</b><br>${esc(p.freshness)}${p.due ? ' <span class="due">· due or unverified claims are hypotheses until checked</span>' : ''}`;
-  textEl.value = p.text; saveBtn.disabled = false; statusEl.textContent = 'saving logs a write and re-embeds; browsing never logs';
+  textEl.value = p.text; saveBtn.disabled = mode !== 'edit';
+  statusEl.textContent = 'browsing logs no usage events; verdicts and saves do';
   eventsEl.innerHTML = p.events.slice().reverse().map(e => `<div>${e.ts.slice(0, 16)} ${e.event}${e.verdict ? ' ' + e.verdict : ''}${e.claim ? ' (' + esc(e.claim) + ')' : ''}${e.query ? ' “' + esc(e.query) + '”' : ''}${e.note ? ' — ' + esc(e.note) : ''}</div>`).join('') || '<div>no ledger events yet</div>';
+  renderView();
 }
+
+// Read mode: frontmatter as a header, markers as status chips attached to
+// the sentence they qualify. The sentence is the text between the previous
+// sentence end and the marker (markers sit before the final period).
+const MARK = /(NOTE|TODO)\(([a-z-]+):([^)]*)\)/g;
+function chipFor(m) {
+  const info = (current.markers || []).find(x => x.raw === m[0]) || {};
+  const [family, kind, rest] = [m[1], m[2], m[3]];
+  const parts = rest.split(':');
+  if (family === 'NOTE' && kind === 'verified') {
+    const cls = info.due ? 'due' : 'v', age = daysSince(parts[1]);
+    return { cls, html: `<span class="chip ${cls}" data-claim="${esc(parts[0])}" title="${info.due ? 'verified ' + age + 'd ago, past this page\u2019s half-life: check it' : 'verified ' + esc(parts[1])}">${info.due ? '⏲' : '✓'} ${esc(parts[0])} · ${age}d</span>` };
+  }
+  if (family === 'NOTE' && kind === 'unverified') return { cls: 'u', html: `<span class="chip u" data-claim="${esc(parts[0])}" title="a hypothesis; nobody has checked it">? ${esc(parts[0])}</span>` };
+  if (family === 'NOTE' && kind === 'as-of') return { cls: 'asof', html: `<span class="chip asof" title="an observation; true as of this date">as of ${esc(parts[0])}</span>` };
+  if (family === 'TODO' && kind === 'investigate') return { cls: 'todo', html: `<span class="chip todo" title="a declared gap; it is on the bounty board">gap: ${esc(parts[0])}</span>` };
+  return null;
+}
+const daysSince = d => Math.max(0, Math.round((Date.now() - new Date(d + 'T00:00:00Z')) / 86400000));
+function decorate(md) {
+  // wrap the sentence preceding each marker, then replace the marker with its chip
+  return md.split('\n').map(line => {
+    let out = '', last = 0;
+    for (const m of line.matchAll(MARK)) {
+      const chip = chipFor(m); if (!chip) continue;
+      const before = line.slice(last, m.index);
+      const cut = Math.max(before.lastIndexOf('. '), before.lastIndexOf('! '), before.lastIndexOf('? '), before.lastIndexOf(': '));
+      const head = cut >= 0 ? before.slice(0, cut + 2) : '', sentence = cut >= 0 ? before.slice(cut + 2) : before;
+      out += head + (sentence.trim() && chip.cls !== 'asof' && chip.cls !== 'todo' ? `<span class="claim ${chip.cls}">${sentence.trimEnd()}</span>` : sentence.trimEnd()) + chip.html;
+      last = m.index + m[0].length;
+    }
+    return out + line.slice(last);
+  }).join('\n');
+}
+function renderView() {
+  if (!current) return;
+  const fm = current.frontmatter || {};
+  const body = current.text.startsWith('---\n') ? current.text.slice(current.text.indexOf('\n---\n') + 5) : current.text;
+  const cites = (fm.citations || []).map(c => /^https?:/.test(c) ? `<a class="cite" href="${esc(c)}" target="_blank">${esc(c)}</a>` : `<code class="cite">${esc(c)}</code>`).join('');
+  const header = `<div class="fm"><h2>${esc(fm.title || current.filename)}</h2>${fm.summary ? esc(fm.summary) : ''}
+    <div>${(fm.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}<span class="tag">${esc(current.volatility)}${current.half_life_days ? ' · ' + current.half_life_days + 'd' : ''}</span></div>
+    ${cites ? '<div style="margin-top:6px">' + cites + '</div>' : ''}
+    <div style="margin-top:6px">${esc(fm.updated ? 'updated ' + String(fm.updated).slice(0, 10) : '')}</div></div>`;
+  viewEl.innerHTML = header + marked.parse(decorate(body));
+}
+viewEl.addEventListener('click', e => {
+  const chip = e.target.closest('.chip[data-claim]'); if (!chip) return;
+  const claim = chip.dataset.claim, r = chip.getBoundingClientRect();
+  menuEl.style.display = 'block'; menuEl.style.left = Math.min(r.left, window.innerWidth - 260) + 'px'; menuEl.style.top = (r.bottom + 6) + 'px';
+  menuEl.innerHTML = `<div class="h">claim <b>${esc(claim)}</b> in ${esc(current.filename)}</div>
+    <button data-v="verified">✓ I checked it against its source and it holds</button>
+    <button data-v="outdated">✗ it is wrong or stale (add a note)</button>`;
+  menuEl.onclick = async ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    let note = null;
+    if (b.dataset.v === 'outdated') { note = prompt('What is wrong, and what is right now?'); if (note === null) return; }
+    menuEl.style.display = 'none'; statusEl.textContent = 'recording…';
+    const res = await api('/api/claim', { method: 'POST', body: JSON.stringify({ filename: current.filename, verdict: b.dataset.v, claim, note }) });
+    if (res.error) { statusEl.textContent = 'rejected: ' + res.error; return; }
+    statusEl.textContent = (b.dataset.v === 'verified' ? 'stamped ' : 'flagged ') + claim + ' · ' + res.freshness;
+    current = res; textEl.value = res.text; metaEl.innerHTML = `<b>${esc(current.filename)}</b><br>${esc(res.freshness)}`; renderView();
+    pages = await api('/api/pages'); renderList();
+  };
+});
+document.addEventListener('click', e => { if (!e.target.closest('#menu') && !e.target.closest('.chip')) menuEl.style.display = 'none'; });
+function setMode(m) {
+  mode = m; document.getElementById('mRead').classList.toggle('on', m === 'read'); document.getElementById('mEdit').classList.toggle('on', m === 'edit');
+  viewEl.style.display = m === 'read' ? 'block' : 'none'; textEl.style.display = m === 'edit' ? 'block' : 'none';
+  saveBtn.disabled = !(m === 'edit' && current);
+}
+document.getElementById('mRead').onclick = () => setMode('read');
+document.getElementById('mEdit').onclick = () => setMode('edit');
+setMode('read');
 
 saveBtn.onclick = async () => {
   saveBtn.disabled = true; statusEl.textContent = 'saving…';
@@ -96,6 +207,7 @@ saveBtn.onclick = async () => {
   if (r.error) { statusEl.textContent = 'rejected: ' + r.error; return; }
   statusEl.textContent = 'saved · ' + r.freshness;
   metaEl.innerHTML = `<b>${esc(selected)}</b><br>${esc(r.freshness)}`;
+  current = r; renderView();
   await reload();
 };
 
