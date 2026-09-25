@@ -163,6 +163,20 @@ The key makes re-declaring the same gap a no-op, so a script that scans
 docs for open questions can run repeatedly. The board clears itself once a
 satisfying page exists.
 
+## Browsing
+
+```bash
+mem browse          # http://127.0.0.1:8765 (or the next free port)
+```
+
+A local web app: a cluster map of the corpus, the page list with search,
+and an editor. The map needs no dimensionality reduction. Each page links
+to its four nearest neighbours by cosine distance from the index, and a
+force layout lets clusters emerge. Node size is heat over 30 days, color is
+volatility, a red ring marks due or unverified claims. Browsing logs no
+usage events, so clicking around never inflates heat. Saving a page runs
+the same checks as `mem add`, re-embeds it, and logs a write.
+
 ## Housekeeping
 
 ```bash
