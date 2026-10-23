@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from . import corpus, embed, fresh, index, ledger, report
+from .dream import cli as dream_cli
 
 GITIGNORE = "nomic-embed-text-v1.5.sqlite3\n"
 
@@ -31,6 +32,9 @@ next steps:
   3. write the first memory:
        mem add --title "..." --summary "..." --citations "..." --text "..."
   4. mem prime
+  5. optional, macOS: let quiet sessions turn into memories on their own
+       mem dream plan       # what would be dreamed about, and why; no tokens
+       mem dream install    # run `mem dream run` every 15 minutes
 """
 
 # union-merge the ledger: concurrent appends from different machines are both
@@ -531,6 +535,8 @@ def main() -> None:
     p = sub.add_parser("export", help="archive pages + index as a memoryfield zip")
     p.add_argument("--out", default="memories.memoryfield.zip")
     p.set_defaults(fn=cmd_export)
+
+    dream_cli.register(sub)
 
     args = parser.parse_args()
     try:

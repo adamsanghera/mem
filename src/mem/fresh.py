@@ -211,6 +211,8 @@ def stale(r: Path, window_days: int = 30) -> list[dict]:
     cutoff = (datetime.now(timezone.utc)).date().toordinal() - window_days
     heat: Counter = Counter()
     for e in events:
+        if ledger.is_maintenance(e):
+            continue
         if e.get("event") in ("read", "search_hit") and e.get("filename"):
             when = _to_date(e.get("ts"))
             if when and when.toordinal() >= cutoff:
