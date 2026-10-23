@@ -275,8 +275,16 @@ def _save(path: Path, fm: dict, body: str) -> None:
     path.write_text(corpus.build_page(fm, body), encoding="utf-8")
 
 
+def _uncommitted(repo: Path, paths: list[str]) -> list[str]:
+    out = _git(repo, "status", "--porcelain", "--", *paths)
+    return [line[3:] for line in out.stdout.splitlines() if line.strip()]
+
+
 def accept(r: Path, ref: str) -> str:
-    """Apply a proposal's diff in its repo and commit only its paths."""
+    """Apply a proposal's diff in its repo and commit only its paths. If any
+    of those paths already has uncommitted edits, apply to the working tree
+    and leave the commit to the owner, since committing the file would sweep
+    their unfinished work into it. Returns a line saying which happened."""
     path, fm, body = find_proposal(r, ref)
     if fm.get("status") != "open":
         raise ValueError(f"{path.name} is {fm.get('status')}")
@@ -284,22 +292,28 @@ def accept(r: Path, ref: str) -> str:
     repo = Path(fm["repo"])
     if not m or repo_of(repo) is None:
         raise ValueError(f"{path.name} has no diff, or {repo} is not a git repo")
+    paths = [str(repo / p) for p in fm.get("paths") or []]
+    dirty = _uncommitted(repo, paths)
     applied = _git(repo, "apply", "--whitespace=nowarn", "-", input=m.group(1))
     if applied.returncode != 0:
         fm["error"] = applied.stderr.strip()[:500]
         _save(path, fm, body)
         raise ValueError(f"git apply failed: {fm['error']}")
-    paths = [str(repo / p) for p in fm.get("paths") or []]
-    _git(repo, "add", "-A", "--", *paths)
-    committed = _git(
-        repo, "commit", "-q", "-m", f"mem: {fm['kind']} {fm['skill']} (proposal {path.stem})", "--", *paths
-    )
-    if committed.returncode != 0:
-        raise ValueError(f"git commit failed: {committed.stderr.strip()[:500]}")
+    if dirty:
+        outcome = f"applied, not committed: {', '.join(dirty)} had uncommitted edits"
+    else:
+        _git(repo, "add", "-A", "--", *paths)
+        committed = _git(
+            repo, "commit", "-q", "-m", f"mem: {fm['kind']} {fm['skill']} (proposal {path.stem})", "--", *paths
+        )
+        if committed.returncode != 0:
+            raise ValueError(f"git commit failed: {committed.stderr.strip()[:500]}")
+        outcome = "applied and committed"
     fm["status"] = "accepted"
+    fm["accepted_note"] = outcome
     fm.pop("error", None)
     _save(path, fm, body)
-    return path.name
+    return f"{path.stem}: {outcome}"
 
 
 def reject(r: Path, ref: str, reason: str | None) -> str:
@@ -309,6 +323,23 @@ def reject(r: Path, ref: str, reason: str | None) -> str:
         fm["rejected_because"] = reason
     _save(path, fm, body)
     return path.name
+
+
+_WHY_RE = re.compile(r"## Why\n\n(.*?)\n\n## Diff", re.S)
+
+
+def open_summaries(r: Path) -> list[str]:
+    """One line per proposal still waiting on the owner, so later runs don't
+    file the same change again."""
+    lines = []
+    for path, fm, body in load_proposals(r):
+        if fm.get("status") != "open":
+            continue
+        m = _WHY_RE.search(body)
+        why = " ".join(m.group(1).split()) if m else ""
+        why = why if len(why) <= 160 else why[:159] + "…"
+        lines.append(f"{fm.get('kind')} {fm.get('skill')} ({path.stem}): {why}")
+    return lines
 
 
 def rejected_summaries(r: Path) -> list[str]:

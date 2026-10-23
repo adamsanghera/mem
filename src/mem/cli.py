@@ -34,7 +34,7 @@ next steps:
   4. mem prime
   5. optional, macOS: let quiet sessions turn into memories on their own
        mem dream plan       # what would be dreamed about, and why; no tokens
-       mem dream install    # run `mem dream run` every 15 minutes
+       mem dream install    # run `mem dream run` once a day
 """
 
 # union-merge the ledger: concurrent appends from different machines are both

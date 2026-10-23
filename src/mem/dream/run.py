@@ -163,10 +163,12 @@ def _skill_context(r: Path, cfg: dict, snaps, workspace: Path) -> dict:
         f"{s.root / name}/ (proposal-only)" for s in snaps for name in cfg["skill_proposal_only"]
     ]
     rejected = skills.rejected_summaries(r)
+    pending = skills.open_summaries(r)
     return {
         "skill_roots": ", ".join(str(s.root) for s in snaps) or "none",
         "notes_dir": str(workspace / skills.NOTES_DIR),
         "held": "\n" + _bullets(held) if held else "none",
+        "pending": "\n" + _bullets(pending) if pending else "none",
         "rejected": "\n" + _bullets(rejected) if rejected else "none",
     }
 
@@ -419,8 +421,10 @@ def run(
             state.log(r, records[-1])
         baseline = head(r)
         for cand in chosen:
-            spent = state.tokens_spent(r, 24)
-            if session is None and spent + cand.estimate > cfg["daily_token_budget"]:
+            if session is None and (
+                state.tokens_spent(r, 24) + cand.estimate > cfg["daily_token_budget"]
+                or state.tokens_spent(r, 24 * 7) + cand.estimate > cfg["weekly_token_budget"]
+            ):
                 break
             with state.try_lock(r, plan.subject_lock(cand.session)) as mine:
                 if not mine:

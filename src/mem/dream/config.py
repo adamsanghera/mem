@@ -8,7 +8,7 @@ from .. import corpus
 
 DEFAULTS: dict = {
     "enabled": True,
-    "interval_minutes": 15,
+    "interval_minutes": 1440,
     "idle_hours": 2.0,
     # a transcript written to this recently is still being worked on, even
     # when the user has not sent a prompt for a while
@@ -28,7 +28,9 @@ DEFAULTS: dict = {
     "max_input_tokens_per_dream": 150000,
     "daily_token_budget": 1000000,
     "weekly_token_budget": 4000000,
-    "max_dreams_per_run": 2,
+    # high enough that a daily run reaches the day's sessions before they age
+    # out; the token budgets stop a run sooner
+    "max_dreams_per_run": 8,
     "timeout_minutes": 20,
     "max_chars_per_message": 2000,
     "skill_roots": ["~/.cursor/skills"],

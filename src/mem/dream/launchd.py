@@ -38,7 +38,14 @@ def render(r: Path, cfg: dict, mem_path: str, path_env: str) -> bytes:
             "RunAtLoad": False,
             "ProcessType": "Background",
             "LowPriorityIO": True,
-            "EnvironmentVariables": {"PATH": path_env, "MEM_ROOT": str(r), "HOME": str(Path.home())},
+            "EnvironmentVariables": {
+                "PATH": path_env,
+                "MEM_ROOT": str(r),
+                "HOME": str(Path.home()),
+                # stdout is a file here, so Python would hold progress lines
+                # until the run exits
+                "PYTHONUNBUFFERED": "1",
+            },
             "StandardOutPath": str(log),
             "StandardErrorPath": str(log),
             "WorkingDirectory": str(r),

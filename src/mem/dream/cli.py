@@ -17,7 +17,9 @@ def cmd_install(args) -> None:
     r = _root()
     cfg = config.load(r)
     path = launchd.install(r, cfg)
-    print(f"installed {path}; `mem dream run` every {cfg['interval_minutes']} minutes")
+    minutes = int(cfg["interval_minutes"])
+    every = f"{minutes // 60} hours" if minutes % 60 == 0 else f"{minutes} minutes"
+    print(f"installed {path}; `mem dream run` every {every}")
 
 
 def cmd_uninstall(args) -> None:
