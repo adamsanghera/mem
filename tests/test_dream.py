@@ -286,6 +286,28 @@ def test_accept_and_reject_proposals(root, cfg, skill_repo, tmp_path):
     assert skills.rejected_summaries(root) == ["delete beta: deletes the skill (rejected: beta is still used)"]
 
 
+def test_accept_leaves_the_commit_to_the_owner_when_the_file_has_their_edits(root, cfg, skill_repo, tmp_path):
+    repo, skills_root = skill_repo
+    md = skills_root / "beta" / "SKILL.md"
+    md.write_text(md.read_text() + "owner's edit\n")
+    snaps = skills.snapshot(cfg)
+    md.write_text(md.read_text().replace("step 2\n", "step 2, with the dream's fix\n"))
+    (tmp_path / skills.NOTES_DIR).mkdir()
+    (tmp_path / skills.NOTES_DIR / "beta.md").write_text("Step 2 was missing the fix.")
+    settle(root, cfg, snaps, tmp_path)
+    [(proposal, fm, _)] = skills.load_proposals(root)
+    assert "dream's fix" not in md.read_text()
+    assert skills.open_summaries(root) == [f"edit beta ({proposal.stem}): Step 2 was missing the fix."]
+
+    message = skills.accept(root, proposal.stem)
+    assert "not committed" in message
+    text = md.read_text()
+    assert "owner's edit" in text and "dream's fix" in text
+    assert git(repo, "log", "--oneline").count("\n") == 1
+    assert skills.load_proposals(root)[0][1]["status"] == "accepted"
+    assert skills.open_summaries(root) == []
+
+
 def test_root_outside_git_is_proposal_only(root, cfg, tmp_path):
     loose = tmp_path / "loose"
     (loose / "alpha").mkdir(parents=True)
@@ -345,6 +367,9 @@ def stub(root, cfg, tmp_path):
 
 def test_run_dreams_commits_and_consolidates(root, cfg, stub):
     write_transcript(cfg, prompts=["why does the cache miss on cold start"])
+    waiting = skills._write_proposal(
+        root, {"status": "open", "kind": "new", "skill": "gamma", "reason": "a new skill"}, "Gamma keeps coming up.", ""
+    )
     records = run.run(root, cfg, out=lambda *_: None)
     assert [r["event"] for r in records] == ["dream", "consolidate"]
 
@@ -357,6 +382,7 @@ def test_run_dreams_commits_and_consolidates(root, cfg, stub):
     calls = [json.loads(line) for line in stub.read_text().splitlines()]
     assert [(c["kind"], c["from"]) for c in calls] == [("dream", SESSION), ("consolidate", None)]
     assert transcripts.DREAM_MARKER in calls[0]["prompt"]
+    assert f"new gamma ({waiting.stem}): Gamma keeps coming up." in calls[0]["prompt"]
     assert "cache-warmup.md" in calls[1]["prompt"]
     assert "--workspace" in calls[0]["argv"]
     assert {c["session"] for c in calls} <= state.registered_sessions(root)
@@ -398,6 +424,7 @@ def test_plist_render(root, cfg):
     assert data["ProgramArguments"] == ["/bin/mem", "dream", "run"]
     assert data["StartInterval"] == cfg["interval_minutes"] * 60
     assert data["EnvironmentVariables"]["MEM_ROOT"] == str(root)
+    assert data["EnvironmentVariables"]["PYTHONUNBUFFERED"] == "1"
 
 
 def test_config_set_keeps_types_and_rejects_unknown_keys(root):

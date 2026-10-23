@@ -197,7 +197,7 @@ with uncommitted edits is restored and held as a proposal:
 
 ```bash
 mem dream proposals                  # open proposals
-mem dream proposals accept <id>      # apply and commit
+mem dream proposals accept <id>      # apply and commit; apply only if the file has your edits
 mem dream proposals reject <id> --reason "..."
 ```
 

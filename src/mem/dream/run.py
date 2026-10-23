@@ -163,10 +163,12 @@ def _skill_context(r: Path, cfg: dict, snaps, workspace: Path) -> dict:
         f"{s.root / name}/ (proposal-only)" for s in snaps for name in cfg["skill_proposal_only"]
     ]
     rejected = skills.rejected_summaries(r)
+    pending = skills.open_summaries(r)
     return {
         "skill_roots": ", ".join(str(s.root) for s in snaps) or "none",
         "notes_dir": str(workspace / skills.NOTES_DIR),
         "held": "\n" + _bullets(held) if held else "none",
+        "pending": "\n" + _bullets(pending) if pending else "none",
         "rejected": "\n" + _bullets(rejected) if rejected else "none",
     }
 

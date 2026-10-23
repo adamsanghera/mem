@@ -18,6 +18,7 @@ $scope
 Skill folders you may change: $skill_roots
 Fix and improve skills freely: edit in place. When in doubt, edit. A graduation into an existing skill that stays small is a direct edit. A new skill, deleting one, or rewriting or extending most of one is also done in place, and the runner holds it back as a proposal for the owner. For each skill you change, write a few sentences on why to $notes_dir/<skill-folder>.md. Proposals carry them.
 Changes to these are always held as proposals: $held
+Proposals still waiting on the owner. Don't file the same change again; if yours goes further, say so in your note: $pending
 Proposals the owner rejected, which you should not make again: $rejected
 
 ## Rules
