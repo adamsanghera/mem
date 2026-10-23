@@ -52,7 +52,11 @@ def list_pages(r: Path) -> list[dict]:
         page_events = grouped.get(path.name, [])
         f = fresh.freshness(path.name, fm, text, page_events)
         heat = sum(
-            1 for e in page_events if e["event"] in ("read", "search_hit") and e["ts"] >= month
+            1
+            for e in page_events
+            if e["event"] in ("read", "search_hit")
+            and e["ts"] >= month
+            and not ledger.is_maintenance(e)
         )
         verdicts = Counter(e["verdict"] for e in page_events if e["event"] == "feedback")
         rows.append(

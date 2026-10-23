@@ -30,7 +30,7 @@ def _feedback_by_page(events: list[dict]) -> dict[str, Counter]:
 
 def hot(r: Path, window_days: int, min_hits: int) -> list[list[dict]]:
     """Clusters of pages whose ledger heat crosses the promotion threshold."""
-    events = ledger.load(r, window_days)
+    events = ledger.load(r, window_days, include_maintenance=False)
     reads = Counter(e["filename"] for e in events if e["event"] == "read")
     surfaced = Counter(e["filename"] for e in events if e["event"] == "search_hit")
     feedback = _feedback_by_page(events)
@@ -75,7 +75,7 @@ def bounties(r: Path, window_days: int) -> list[dict]:
     clustered by embedding similarity, so repeated needs rank first. Each
     cluster is a memory somebody wanted and nobody has written."""
     signals = []
-    for e in ledger.load(r, window_days):
+    for e in ledger.load(r, window_days, include_maintenance=False):
         if e["event"] == "weak_search" and e.get("query"):
             signals.append({"text": e["query"], "kind": "weak_search", "ts": e["ts"]})
         elif e["event"] == "feedback" and e.get("verdict") == "miss" and e.get("note"):
@@ -132,7 +132,7 @@ def demand_for(r: Path, query: str, window_days: int = 90) -> Counter:
     within CLUSTER_DISTANCE of it, by kind. Lets a cold search advertise how
     many times the same gap has been hit before."""
     signals = []
-    for e in ledger.load(r, window_days):
+    for e in ledger.load(r, window_days, include_maintenance=False):
         if e["event"] == "weak_search" and e.get("query"):
             signals.append((e["query"], "weak_search"))
         elif e["event"] == "feedback" and e.get("verdict") == "miss" and e.get("note"):
@@ -191,14 +191,14 @@ def prime(r: Path, task: str | None = None) -> dict:
     ][: PRIME_CAPS["standing"]]
 
     heat: Counter = Counter()
-    for e in ledger.load(r, 14):
+    for e in ledger.load(r, 14, include_maintenance=False):
         f = e.get("filename")
         if e["event"] in ("read", "search_hit") and f in meta and f not in cards:
             heat[f] += 1
     hot = [{"filename": f, "hits": n} for f, n in heat.most_common(PRIME_CAPS["hot"])]
 
     helped: Counter = Counter()
-    for e in ledger.load(r, 30):
+    for e in ledger.load(r, 30, include_maintenance=False):
         if (
             e["event"] == "feedback"
             and e.get("filename") in cards
@@ -251,14 +251,16 @@ def stats(r: Path) -> dict:
             graduated += 1
 
     events = ledger.load(r)
-    week = ledger.load(r, 7)
-    month = ledger.load(r, 30)
+    working = [e for e in events if not ledger.is_maintenance(e)]
+    week = ledger.load(r, 7, include_maintenance=False)
+    month_all = ledger.load(r, 30)
+    month = [e for e in month_all if not ledger.is_maintenance(e)]
     searches_this_week = len(
         {(e["ts"], e.get("query")) for e in week if e["event"] == "search_hit"}
     )
     surfaced_30d = {e["filename"] for e in month if e["event"] == "search_hit"}
     read_30d = {e["filename"] for e in month if e["event"] == "read"}
-    touched_ever = {e["filename"] for e in events}
+    touched_ever = {e["filename"] for e in working}
 
     verdicts_30d = Counter(
         e["verdict"] for e in month if e["event"] == "feedback"
@@ -298,7 +300,9 @@ def stats(r: Path) -> dict:
             " ".join(f"{k}={verdicts_30d[k]}" for k in sorted(verdicts_30d)) or "none"
         ),
         "weak_searches_30d": sum(1 for e in month if e["event"] == "weak_search"),
-        "verifications_30d": verdicts_30d["verified"],
+        "verifications_30d": sum(
+            1 for e in month_all if e["event"] == "feedback" and e.get("verdict") == "verified"
+        ),
         "due_claims": due_claims,
         "unverified_claims": unverified_claims,
         "helpful_rate_30d_pct": round(100 * helpful / rated) if rated else "n/a",
@@ -309,6 +313,7 @@ def stats(r: Path) -> dict:
             else 0
         ),
         "ledger_events": len(events),
+        "maintenance_events_30d": len(month_all) - len(month),
     }
 
 

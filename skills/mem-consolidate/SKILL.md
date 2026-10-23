@@ -11,18 +11,32 @@ description: >-
 
 # mem-consolidate
 
-The consolidator is the one actor that edits the corpus deliberately.
-Agents write pages liberally during their work. This pass makes the corpus
-trustworthy afterwards. It also owns the corpus's git commits, so ordinary
-agents never need to.
+The consolidator edits the corpus deliberately. Agents write pages liberally
+during their work, and dreams reflect on each session afterwards. This pass
+makes the corpus as a whole trustworthy: corrections, splits, cross-links,
+and merges across sessions. It and the dream runner own the corpus's git
+commits, so ordinary agents never need to.
+
+Two ways to run it:
+
+- **Headless, from `mem dream`.** The runner starts this pass after dreams
+  change the corpus, or on `mem dream consolidate`. Its prompt names a scope
+  (pages changed since the last pass, pages with new `outdated` or `partial`
+  verdicts, pages past the embedding budget). Limit every phase to those
+  pages and their nearest neighbours. The runner holds the corpus lock,
+  reindexes, settles skill changes, and commits after you finish.
+- **By hand.** The whole corpus is in scope. Run `mem dream pause` first if
+  dreams are installed, and `mem dream resume` after, so no dream commits
+  under you.
 
 ## Hard rules
 
-- Read pages with the file-read tool and find related pages with `rg` over
-  the corpus. Do NOT use `mem show` or `mem search` during the pass: they
-  log usage events, and audit reads would inflate the heat this pass ranks
+- Reads. When `MEM_SESSION_KIND=consolidate` is set (the runner sets it),
+  use `mem show` and `mem search` freely: tagged reads don't count as heat.
+  Otherwise read pages with the file-read tool and find related pages with
+  `rg`, because untagged audit reads would inflate the heat this pass ranks
   by. `mem verify`, `mem stale`, `mem hot`, `mem bounties`, `mem stats`, and
-  `mem eval` are read-only and fine.
+  `mem eval` are read-only and always fine.
 - Create pages only with `mem add`. It enforces the embedding window and
   logs the write.
 - Edit existing pages in place, then `mem reindex` at the end. Keep
@@ -32,11 +46,17 @@ agents never need to.
 - Mark what you touch. A claim you checked against its source gets
   `NOTE(verified:<id>:<today>)`. A claim you rewrote without checking gets
   `NOTE(unverified:<id>)`. Confidence is not evidence.
-- Never write under a skills directory. Graduations and demotions are
-  proposals in the digest, and a human ratifies them.
+- Skills. Fix and improve an existing skill directly: a wrong step, a
+  missing gotcha, a stale command, a sharper description. When in doubt,
+  edit. A new skill, deleting one, or rewriting or extending most of one
+  needs the owner's approval. Headless, make those changes in place too: the
+  runner restores them and files them as proposals. By hand, describe them
+  in the digest instead. Never edit the `mem` or `mem-consolidate` skills
+  themselves; they are installed from the mem repo.
 - Never hand-edit `meta/ledger.jsonl`, the sqlite index, or `meta/evals.yaml`
   (fix a page, not a fixture).
-- Commit once, at the end, with a summary message. Nothing before.
+- Headless: do not run git, `mem reindex`, or the card sync. By hand: commit
+  once, at the end, with a summary message. Nothing before.
 - Prose: lead with the finding, one claim per sentence, no dashes.
 
 ## 0. Preflight
@@ -108,12 +128,13 @@ mem bounties
 Fill any bounty you can research in a few minutes with a cited `mem add`.
 The board clears itself once a satisfying page exists.
 
-## 7. Proposals (digest only)
+## 7. Skills and proposals
 
 - Graduation: pages that are procedural (how to do X) and earned `solved`
-  or `partial`. For each, say what skill it would become and whether an
-  existing skill (see the `skill-*.md` cards) already owns the territory,
-  in which case propose extending that skill.
+  or `partial`. If an existing skill (see the `skill-*.md` cards) owns the
+  territory and the addition is small, add it to that skill directly.
+  Otherwise it is a new skill or a large extension: follow the skills rule
+  above.
 - Demotion: skill cards with no ledger events in 30 days. Caveat: the
   ledger sees only mem-mediated events, so a cold card usually means its
   summary never matches how agents search, not that the skill is unused.
@@ -121,6 +142,10 @@ The board clears itself once a satisfying page exists.
   crowd results.
 
 ## 8. Finish
+
+Headless: write the digest to the path the prompt names
+(`meta/consolidation-<YYYY-MM-DD>-<HHMM>.md`), end with a one-line summary,
+and stop. The runner does the rest. By hand:
 
 ```bash
 python ~/code/mem/scripts/sync_skill_cards.py   # if skill cards are in use
@@ -130,7 +155,7 @@ mem verify    # 0 problems; report remaining warnings
 mem stats
 ```
 
-Write `meta/consolidation-<YYYY-MM-DD>.md`: corrections applied, pages split
+Write `meta/consolidation-<YYYY-MM-DD>-<HHMM>.md`: corrections applied, pages split
 (old to new filenames), claims verified or flagged, pages extended,
 cross-links and merges, bounties filled, proposals, unresolved items, and
 `mem stats` before and after. Then commit the corpus:

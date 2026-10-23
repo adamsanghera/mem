@@ -15,6 +15,14 @@ from mem import corpus, embed, fresh, index, ledger, report
 @pytest.fixture
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv("MEM_ROOT", str(tmp_path))
+    for var in (
+        "MEM_SESSION",
+        "CURSOR_CONVERSATION_ID",
+        "TERM_SESSION_ID",
+        "MEM_SESSION_KIND",
+        "MEM_DREAMED_FROM",
+    ):
+        monkeypatch.delenv(var, raising=False)
     (tmp_path / "meta").mkdir()
     return tmp_path
 
@@ -340,6 +348,51 @@ def test_session_identifier(root, monkeypatch):
     monkeypatch.setenv("MEM_SESSION", "named-session")
     ledger.append(root, "read", "a.md")
     assert ledger.load(root)[-1]["session"] == "named-session"
+
+
+def test_session_kind_and_dream_subject_tags(root, monkeypatch):
+    ledger.append(root, "read", "a.md")
+    assert "kind" not in ledger.load(root)[-1]
+    assert "dreamed_from" not in ledger.load(root)[-1]
+
+    monkeypatch.setenv("MEM_SESSION_KIND", "dream")
+    monkeypatch.setenv("MEM_DREAMED_FROM", "subject-session")
+    ledger.append(root, "search_hit", "a.md", query="q", score=0.0)
+    last = ledger.load(root)[-1]
+    assert last["kind"] == "dream"
+    assert last["dreamed_from"] == "subject-session"
+    assert last["score"] == 0.0  # falsy extras survive
+    assert ledger.is_maintenance(last)
+    assert len(ledger.load(root, include_maintenance=False)) == 1
+
+
+def test_maintenance_events_are_not_demand(root, fake_embed, monkeypatch):
+    page = corpus.new_page(root, "Alpha", "alpha topic")
+    index.reindex(root)
+    ledger.append(root, "read", page.name)
+
+    monkeypatch.setenv("MEM_SESSION", "dream-session")
+    monkeypatch.setenv("MEM_SESSION_KIND", "dream")
+    for _ in range(5):
+        ledger.append(root, "read", page.name)
+    ledger.append(root, "weak_search", None, query="something nobody wrote")
+    ledger.append(root, "feedback", page.name, verdict="solved")
+    ledger.append(root, "feedback", page.name, verdict="verified")
+    monkeypatch.setenv("MEM_SESSION_KIND", "consolidate")
+    ledger.append(root, "read", page.name)
+
+    assert report.hot(root, window_days=30, min_hits=2) == []
+    assert report.bounties(root, 30) == []
+    assert report.demand_for(root, "something nobody wrote") == {}
+    assert report.prime(root)["hot"] == [{"filename": page.name, "hits": 1}]
+    assert [row["hits"] for row in fresh.stale(root)] == [1]  # unmarked, so due
+
+    stats = report.stats(root)
+    assert stats["ledger_events"] == 10
+    assert stats["maintenance_events_30d"] == 9
+    assert stats["active_sessions_7d"] == 0  # the working read had no session id
+    assert stats["helpful_rate_30d_pct"] == "n/a"
+    assert stats["verifications_30d"] == 1  # a dream's check is still a check
 
 
 def test_reindex_incremental(root, fake_embed):

@@ -37,6 +37,12 @@ VERDICTS = {
 # doesn't exist yet, aggregated by `mem bounties`.
 WEAK_BEST_DISTANCE = 0.45
 
+# Sessions that maintain the corpus rather than work from it: a dream over
+# one transcript, or a consolidation pass. Their events stay on the ledger,
+# and their verdicts still count toward claim freshness, but their reads and
+# searches are not demand, so heat, bounties, and helpfulness leave them out.
+MAINTENANCE_KINDS = frozenset({"dream", "consolidate"})
+
 
 def ledger_path(r: Path) -> Path:
     return corpus.meta_dir(r) / "ledger.jsonl"
@@ -54,14 +60,19 @@ def _session() -> str | None:
 
 
 def append(r: Path, event: str, filename: str | None, uuid: str | None = None, **extra) -> None:
+    """Append one event. MEM_SESSION_KIND tags it with the session's kind,
+    and MEM_DREAMED_FROM names the session a dream is reflecting on."""
     record = {
         "ts": corpus.now_iso(),
         "event": event,
         "filename": filename,
         "uuid": uuid,
         "session": _session(),
-        **{k: v for k, v in extra.items() if v is not None},
     }
+    for key, var in (("kind", "MEM_SESSION_KIND"), ("dreamed_from", "MEM_DREAMED_FROM")):
+        if os.environ.get(var):
+            record[key] = os.environ[var]
+    record.update({k: v for k, v in extra.items() if v is not None})
     path = ledger_path(r)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -74,7 +85,15 @@ def has_key(r: Path, key: str) -> bool:
     return any(e.get("key") == key for e in load(r))
 
 
-def load(r: Path, window_days: int | None = None) -> list[dict]:
+def is_maintenance(event: dict) -> bool:
+    return event.get("kind") in MAINTENANCE_KINDS
+
+
+def load(
+    r: Path, window_days: int | None = None, include_maintenance: bool = True
+) -> list[dict]:
+    """Events, oldest first. Pass include_maintenance=False for anything that
+    measures demand: what working sessions read, searched for, or found."""
     path = ledger_path(r)
     if not path.is_file():
         return []
@@ -90,6 +109,8 @@ def load(r: Path, window_days: int | None = None) -> list[dict]:
         except ValueError:
             continue
         if cutoff is not None and record.get("ts", "") < cutoff:
+            continue
+        if not include_maintenance and is_maintenance(record):
             continue
         events.append(record)
     return events

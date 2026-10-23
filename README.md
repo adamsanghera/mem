@@ -163,6 +163,50 @@ The key makes re-declaring the same gap a no-op, so a script that scans
 docs for open questions can run repeatedly. The board clears itself once a
 satisfying page exists.
 
+## Dreaming
+
+Agents forget to write memories, most of all in short sessions, which is
+often where the hard-won fix was found. `mem dream` lets a session's own
+learnings reach the corpus after the fact. On macOS:
+
+```bash
+mem dream plan       # every session's verdict and the reason; spends no tokens
+mem dream install    # a launchd job runs `mem dream run` every 15 minutes
+```
+
+Each run looks for Cursor agent sessions whose user has been away for two
+hours and whose transcript grew since the last dream. For each, it starts a
+headless `agent` run (a dream) that reads a compact digest of that one
+transcript and nothing else. The dream adds what the session learned,
+prunes what it showed to be wrong, and fixes skills the session found
+lacking. The runner commits each dream separately, so `git revert` undoes
+one. A run that committed a dream ends with a `mem-consolidate` pass scoped
+to what changed since the last pass.
+
+The check that picks sessions reads files only. It skips dream sessions
+themselves, subagents, sessions older than three days, sessions still being
+worked on, and sessions with too little new material, unless the session's
+own ledger events say a page it used was outdated. The agent CLI cannot cap a
+run's tokens, so cost is bounded from outside: each run is estimated before it
+starts and checked against daily and weekly budgets, a timeout kills
+runaways, and the usage each run reports is charged afterwards.
+
+Dreams and consolidations may fix or improve an existing skill directly. A
+new skill, a deletion, a rewrite of most of a skill, or a change to a file
+with uncommitted edits is restored and held as a proposal:
+
+```bash
+mem dream proposals                  # open proposals
+mem dream proposals accept <id>      # apply and commit
+mem dream proposals reject <id> --reason "..."
+```
+
+Other controls: `mem dream status`, `pause`, `resume`, `log`,
+`digest <session>`, `run --session <id>`, `consolidate`, and
+`config [get|set] <key> <value>` for the idle time, budgets, model, and the
+rest. Dream sessions set `MEM_SESSION_KIND`, so their reads and searches
+never count as heat or demand.
+
 ## Browsing
 
 ```bash

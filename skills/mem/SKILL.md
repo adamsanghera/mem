@@ -129,8 +129,13 @@ lists gaps: searches that found nothing and declared misses, clustered, and
 cleared once a page satisfies them. `mem stats` reports usage and the
 helpful rate. `mem eval` runs retrieval fixtures from `meta/evals.yaml`.
 Add a fixture whenever a search misses a page it should have found.
-Promoting hot pages into skills or docs is a human-reviewed step: propose,
-never auto-write.
+Outside a dream or a consolidation pass, propose skill changes rather than
+writing them.
+
+When `mem dream` is installed, a headless dream reflects on each session
+after its user has been away for a while, and saves what the session forgot
+to. That is a backstop, not a reason to skip the wrap-up above: the session
+that learned something writes it best.
 
 If embedding fails, ollama must be serving (`ollama serve`, or set
 `OLLAMA_URL`) with the model pulled (`ollama pull nomic-embed-text`). Setup
