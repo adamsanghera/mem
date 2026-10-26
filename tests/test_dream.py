@@ -332,9 +332,15 @@ STUB = textwrap.dedent(
     """\
     import json, os, sys, time, uuid
     from pathlib import Path
+    if sys.argv[1] == "status":
+        print("Not logged in" if os.environ.get("STUB_STATUS_LOGGED_OUT") else "✓ Logged in as test@example.com")
+        sys.exit(1 if os.environ.get("STUB_STATUS_LOGGED_OUT") else 0)
     if sys.argv[1] == "create-chat":
         print(uuid.uuid4())
         sys.exit(0)
+    if os.environ.get("STUB_AUTH_FAIL"):
+        print("Error: Authentication required. Please run 'agent login' first.", file=sys.stderr)
+        sys.exit(1)
     root = Path(os.environ["MEM_ROOT"])
     prompt = sys.argv[-1]
     calls = root.parent / "calls.jsonl"
@@ -391,6 +397,28 @@ def test_run_dreams_commits_and_consolidates(root, cfg, stub):
     assert state.consolidated(root)["commit"]
     assert state.tokens_spent(root, 24) == 2 * 1280
     assert verdicts(root, cfg)[SESSION].verdict == "skip:dreamed"
+
+
+def test_run_stops_before_dreaming_when_logged_out(root, cfg, stub, monkeypatch):
+    write_transcript(cfg, prompts=["q"])
+    monkeypatch.setenv("STUB_STATUS_LOGGED_OUT", "1")
+    [record] = run.run(root, cfg, out=lambda *_: None)
+    assert record["event"] == "auth" and "Not logged in" in record["error"]
+    assert state.watermark(root, SESSION).offset == 0
+    assert not stub.exists()
+
+
+def test_a_dream_that_never_started_marks_nothing_and_stops_the_run(root, cfg, stub, monkeypatch):
+    write_transcript(cfg, prompts=["q"])
+    write_transcript(cfg, session="second", prompts=["q2"])
+    head_before = git(root, "rev-parse", "HEAD")
+    (root / "unrelated-edit.md").write_text("---\ntitle: x\n---\n\nleft by another session\n")
+    monkeypatch.setenv("STUB_AUTH_FAIL", "1")
+    records = run.run(root, cfg, out=lambda *_: None)
+    assert [(r["event"], r["status"]) for r in records] == [("dream", "error")]
+    assert "Authentication required" in records[0]["error"]
+    assert state.watermark(root, records[0]["subject_session"]).offset == 0
+    assert git(root, "rev-parse", "HEAD") == head_before  # nothing committed, no consolidation
 
 
 def test_run_respects_pause_and_dry_run(root, cfg, stub):

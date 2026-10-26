@@ -13,6 +13,7 @@ runaway, and the usage each run reports is charged to the log afterwards.
 
 import json
 import os
+import re
 import shlex
 import signal
 import string
@@ -40,9 +41,27 @@ class AgentResult:
     seconds: float = 0.0
     error: str = ""
 
+    @property
+    def did_nothing(self) -> bool:
+        """Failed before any model call (logged out, CLI broken): nothing was
+        read, so nothing should be marked as dreamed or committed."""
+        return self.status == "error" and not self.usage
+
 
 def _agent_cmd(cfg: dict) -> list[str]:
     return shlex.split(cfg["agent_cmd"])
+
+
+def logged_in(cfg: dict) -> tuple[bool, str]:
+    try:
+        out = subprocess.run(
+            [*_agent_cmd(cfg), "status"], capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+    text = (out.stdout + out.stderr).strip()
+    ok = out.returncode == 0 and re.search(r"^\W*Logged in as", out.stdout, re.M) is not None
+    return ok, text.splitlines()[-1] if text else f"agent status exited {out.returncode}"
 
 
 def create_chat(cfg: dict, cwd: Path) -> str:
@@ -267,13 +286,24 @@ def dream_one(r: Path, cfg: dict, cand: plan.Candidate) -> dict:
         },
         timeout_s=cfg["timeout_minutes"] * 60,
     )
+    record = {
+        "event": "dream",
+        "subject_session": subject,
+        "estimate": cand.estimate,
+        "digest_chars": len(cand.digest.text) if cand.digest else 0,
+        **_record(result, cand.estimate),
+    }
+    if result.did_nothing:
+        state.log(r, record)
+        return record
     finished = _finish(
         r, cfg, snaps, result, workspace=workspace, subject=subject,
         message=f"dream {subject}: {result.summary or result.status}",
     )
-    # advance even after a failure, so a session that breaks dreams is not
-    # retried, and charged, every run. A truncated digest keeps the old prompt
-    # count, so the rest of the session still reads as new next time.
+    # advance after a run that got going, even one that failed or timed out,
+    # so a session that breaks dreams is not retried, and charged, every run.
+    # A truncated digest keeps the old prompt count, so the rest of the
+    # session still reads as new next time.
     truncated = bool(cand.digest and cand.digest.truncated)
     state.save_watermark(
         r,
@@ -285,14 +315,7 @@ def dream_one(r: Path, cfg: dict, cand: plan.Candidate) -> dict:
             commit=finished["commit"],
         ),
     )
-    record = {
-        "event": "dream",
-        "subject_session": subject,
-        "estimate": cand.estimate,
-        "digest_chars": len(cand.digest.text) if cand.digest else 0,
-        **_record(result, cand.estimate),
-        **finished,
-    }
+    record.update(finished)
     state.log(r, record)
     return record
 
@@ -373,6 +396,10 @@ def consolidate(r: Path, cfg: dict, since_commit: str | None, force: bool = Fals
         env={"MEM_ROOT": str(r), "MEM_SESSION": session, "MEM_SESSION_KIND": "consolidate"},
         timeout_s=cfg["consolidate_timeout_minutes"] * 60,
     )
+    if result.did_nothing:
+        record = {"event": "consolidate", "scope": len(scope), "estimate": estimate, **_record(result, estimate)}
+        state.log(r, record)
+        return record
     finished = _finish(
         r, cfg, snaps, result, workspace=workspace, subject=None,
         message=f"consolidate {stamp}: {result.summary or result.status}",
@@ -419,10 +446,19 @@ def run(
         if deferred:
             records.append({"event": "deferred", "sessions": deferred})
             state.log(r, records[-1])
+        if chosen:
+            ok, detail = logged_in(cfg)
+            if not ok:
+                records.append({"event": "auth", "status": "error", "error": detail})
+                state.log(r, records[-1])
+                out(f"agent is not logged in, so no dreams this run: {detail}")
+                return records
         baseline = head(r)
         for cand in chosen:
-            spent = state.tokens_spent(r, 24)
-            if session is None and spent + cand.estimate > cfg["daily_token_budget"]:
+            if session is None and (
+                state.tokens_spent(r, 24) + cand.estimate > cfg["daily_token_budget"]
+                or state.tokens_spent(r, 24 * 7) + cand.estimate > cfg["weekly_token_budget"]
+            ):
                 break
             with state.try_lock(r, plan.subject_lock(cand.session)) as mine:
                 if not mine:
@@ -436,9 +472,14 @@ def run(
                     state.log(r, records[-1])
                     out(f"  error: {e}")
                     break
-                out(f"  {records[-1]['status']}: {records[-1].get('summary') or ''}")
+                rec = records[-1]
+                out(f"  {rec['status']}: {rec.get('summary') or rec.get('error') or ''}")
+                if rec["status"] == "error" and not rec.get("usage"):
+                    # failing before any model call fails every dream alike
+                    break
         if consolidate_after and cfg["consolidate_after_dreams"] and any(
-            rec.get("event") == "dream" and rec.get("commit") for rec in records
+            rec.get("event") == "dream" and rec.get("status") == "ok" and rec.get("commit")
+            for rec in records
         ):
             out("consolidating")
             try:
