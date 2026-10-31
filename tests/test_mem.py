@@ -2,14 +2,16 @@
 report math, and the reindex change-detection logic (with a fake embedder).
 """
 
+import argparse
 import json
+import threading
 import time
 
 import pytest
 
 from pathlib import Path
 
-from mem import corpus, embed, fresh, index, ledger, report
+from mem import cli, corpus, embed, fresh, index, ledger, report
 
 
 @pytest.fixture
@@ -100,6 +102,66 @@ def test_add_rejects_pages_the_model_cannot_fully_embed(root, monkeypatch):
         cli.cmd_add(args)
     assert exc.value.code == 1
     assert corpus.pages(root) == []  # nothing written
+
+
+def test_claim_page_keeps_both_writers(root):
+    first = corpus.claim_page(root, "same", "one")
+    second = corpus.claim_page(root, "same", "two")
+    assert first.name == "same.md" and first.read_text() == "one"
+    assert second.name == "same-2.md" and second.read_text() == "two"
+    assert list(root.glob(".*.tmp")) == []
+
+
+def test_concurrent_adds_with_the_same_title_keep_both_pages(root, monkeypatch):
+    barrier = threading.Barrier(2, timeout=5)
+
+    def slow(texts, truncate=True):
+        barrier.wait()
+        return [[float(len(t) % 7), 1.0, 0.5] for t in texts]
+
+    monkeypatch.setattr(embed, "embed_texts", slow)
+    errors = []
+
+    def add(body):
+        try:
+            cli.cmd_add(
+                argparse.Namespace(
+                    title="Ollama ignores num_ctx",
+                    text=body,
+                    file=None,
+                    summary=None,
+                    tags=None,
+                    citations=None,
+                    volatility=None,
+                )
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=add, args=("session A",)),
+        threading.Thread(target=add, args=("session B",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert errors == []
+    assert not any(thread.is_alive() for thread in threads)
+
+    pages = {path.name: path.read_text() for path in corpus.pages(root)}
+    assert set(pages) == {"ollama-ignores-num-ctx.md", "ollama-ignores-num-ctx-2.md"}
+    bodies = "\n".join(pages.values())
+    assert "session A" in bodies and "session B" in bodies
+    uuids = {corpus.parse_frontmatter(text)[0]["uuid"] for text in pages.values()}
+    assert len(uuids) == 2
+    monkeypatch.setattr(
+        embed,
+        "embed_texts",
+        lambda texts, truncate=True: [[float(len(t) % 7), 1.0, 0.5] for t in texts],
+    )
+    assert {hit.filename for hit in index.search(root, "session", 5)} == set(pages)
+    assert list(root.glob(".*.tmp")) == []
 
 
 def test_add_writes_and_indexes_when_the_page_fits(root, fake_embed):
