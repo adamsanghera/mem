@@ -9,6 +9,7 @@ other memoryfield tooling.
 
 import os
 import re
+import tempfile
 import uuid as uuidlib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,13 +56,44 @@ def slugify(title: str) -> str:
     return slug
 
 
+def _filename_for(slug: str, n: int) -> str:
+    """`slug.md`, then `slug-2.md`, `slug-3.md`, ... There is no `slug-1.md`."""
+    return f"{slug}.md" if n == 1 else f"{slug}-{n}.md"
+
+
 def unique_filename(r: Path, slug: str) -> str:
-    candidate = f"{slug}.md"
-    n = 2
+    n = 1
+    candidate = _filename_for(slug, n)
     while (r / candidate).exists():
-        candidate = f"{slug}-{n}.md"
         n += 1
+        candidate = _filename_for(slug, n)
     return candidate
+
+
+def claim_page(directory: Path, slug: str, text: str) -> Path:
+    """Publish `text` as a new page, picking the first free name for `slug`.
+
+    The bytes are written to a temp file in `directory`, then `os.link`
+    publishes the name. link does not replace an existing file, so two
+    writers who both wanted `slug.md` each keep a page, and a reader never
+    sees a half-written one.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=".", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        n = 1
+        while True:
+            dest = directory / _filename_for(slug, n)
+            try:
+                os.link(tmp, dest)
+            except FileExistsError:
+                n += 1
+                continue
+            return dest
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def now_iso() -> str:
@@ -122,9 +154,8 @@ def render_page(
 
 
 def new_page(r: Path, title: str, body: str, **kwargs) -> Path:
-    path, text = render_page(r, title, body, **kwargs)
-    path.write_text(text, encoding="utf-8")
-    return path
+    _path, text = render_page(r, title, body, **kwargs)
+    return claim_page(r, slugify(title), text)
 
 
 def resolve(r: Path, ref: str) -> Path | None:

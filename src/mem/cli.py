@@ -120,7 +120,9 @@ def cmd_add(args) -> None:
             "2048-token window (about 6KB of prose). Nothing written. Split it "
             "into pages of one topic each."
         )
-    path.write_text(text, encoding="utf-8")
+    # The name render_page picked is a guess. The embed above is slow, and
+    # another writer can take that name before this process creates the file.
+    path = corpus.claim_page(r, corpus.slugify(args.title), text)
     index.insert_vector(r, path, vector)
     fm, _ = corpus.parse_frontmatter(text)
     ledger.append(r, "write", path.name, uuid=_fm_str(fm or {}, "uuid") or None)
