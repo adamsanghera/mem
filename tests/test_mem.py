@@ -133,6 +133,39 @@ def test_parse_markers_all_kinds_and_malformed():
     assert not any(m.kind == "boundary" for m in markers)
 
 
+def test_impossible_calendar_dates_are_malformed(root, capsys):
+    import argparse
+    from datetime import date
+
+    from mem import cli
+
+    text = (
+        "NOTE(verified:x:2026-02-30) NOTE(as-of:2026-13-01) "
+        "NOTE(verified:leap:2024-02-29) NOTE(verified:noleap:2025-02-29)"
+    )
+    markers = fresh.parse_markers(text)
+    assert [m.raw for m in markers if m.error] == [
+        "NOTE(verified:x:2026-02-30)",
+        "NOTE(as-of:2026-13-01)",
+        "NOTE(verified:noleap:2025-02-29)",
+    ]
+    ok = [(m.kind, m.id, m.date) for m in markers if not m.error]
+    assert ok == [("verified", "leap", "2024-02-29")]
+
+    page = "---\ntitle: T\n---\n\nNOTE(verified:x:2026-02-30)"
+    f = fresh.freshness("t.md", {"volatility": "fast"}, page, [], date(2026, 10, 31))
+    assert f.claims == 0 and f.unmarked
+
+    corpus.new_page(root, "Bad date", "NOTE(verified:x:2026-02-30)", volatility="fast")
+    assert [row["filename"] for row in fresh.stale(root)] == ["bad-date.md"]
+
+    cli.cmd_verify(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "malformed marker NOTE(verified:x:2026-02-30)" in out
+    assert "bad-date.md" in out
+    assert "0 problems, 1 warnings" in out
+
+
 def test_freshness_due_rules():
     from datetime import date
 

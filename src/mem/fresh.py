@@ -30,6 +30,22 @@ MARKER_RE = re.compile(r"\b(NOTE|TODO)\(([a-z-]+):([^)]*)\)")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+
+def _real_date(s: str) -> bool:
+    """True when s is YYYY-MM-DD and a real calendar day.
+
+    The shape check alone accepts 2026-02-30 and 2026-13-01. Those used to
+    pass parse_markers and then raise in date.fromisoformat, which took down
+    every command that reads freshness.
+    """
+    if not DATE_RE.match(s):
+        return False
+    try:
+        date.fromisoformat(s)
+    except ValueError:
+        return False
+    return True
+
 # Title heuristics for pages that declare no volatility: dated observations
 # and records of events or decisions do not decay.
 OBSERVATION_TITLE_RE = re.compile(r"20\d\d-\d\d-\d\d|snapshot|live-state|\bas of\b", re.I)
@@ -63,11 +79,11 @@ def parse_markers(text: str) -> list[Marker]:
                 marker.error = "expected NOTE(unverified:<id>)"
         elif family == "NOTE" and kind == "verified":
             marker = Marker(kind, parts[0], parts[1] if len(parts) > 1 else None, m.group(0))
-            if len(parts) != 2 or not ID_RE.match(parts[0]) or not DATE_RE.match(parts[1]):
+            if len(parts) != 2 or not ID_RE.match(parts[0]) or not _real_date(parts[1]):
                 marker.error = "expected NOTE(verified:<id>:<YYYY-MM-DD>)"
         elif family == "NOTE" and kind == "as-of":
             marker = Marker(kind, None, parts[0], m.group(0))
-            if len(parts) != 1 or not DATE_RE.match(parts[0]):
+            if len(parts) != 1 or not _real_date(parts[0]):
                 marker.error = "expected NOTE(as-of:<YYYY-MM-DD>)"
         elif family == "TODO" and kind == "investigate":
             marker = Marker(kind, parts[0], None, m.group(0))
