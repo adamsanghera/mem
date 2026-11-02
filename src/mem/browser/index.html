@@ -92,7 +92,8 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <script>
-const api = (p, o) => fetch(p, o).then(r => r.json());
+const TOKEN = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+const api = (p, o = {}) => fetch(p, { ...o, headers: { ...o.headers, 'X-Mem-Token': TOKEN } }).then(r => r.json());
 let pages = [], byName = {}, selected = null, matchSet = null, showCards = false;
 let sim, nodeSel, linkSel, graphData;
 
@@ -266,7 +267,9 @@ function highlight() {
 document.getElementById('cards').onchange = e => { showCards = e.target.checked; renderList(); drawGraph(graphData); };
 
 async function reload() {
-  pages = await api('/api/pages'); byName = Object.fromEntries(pages.map(p => [p.filename, p]));
+  const res = await api('/api/pages');
+  if (res.error) { statusEl.textContent = res.error; return; }
+  pages = res; byName = Object.fromEntries(pages.map(p => [p.filename, p]));
   renderList(); drawGraph(await api('/api/graph'));
 }
 reload();

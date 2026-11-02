@@ -210,8 +210,12 @@ never count as heat or demand.
 ## Browsing
 
 ```bash
-mem browse          # http://127.0.0.1:8765 (or the next free port)
+mem browse          # http://127.0.0.1:8765/#token=... (or the next free port)
 ```
+
+The URL carries a token that changes each run. The API refuses requests
+without it, and any request whose Host is not 127.0.0.1 or localhost, so
+other web pages cannot read or edit the corpus.
 
 A local web app: a cluster map of the corpus, the page list with search,
 and an editor. The map needs no dimensionality reduction. Each page links

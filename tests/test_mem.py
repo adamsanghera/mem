@@ -378,6 +378,73 @@ def test_browser_api_list_graph_save_and_no_read_logging(root, fake_embed, monke
     assert browser.ASSET.is_file()
 
 
+def test_browser_server_requires_loopback_host_and_token(root, monkeypatch):
+    import http.client
+    from http.server import ThreadingHTTPServer
+
+    from mem import browser
+
+    page = corpus.new_page(root, "Alpha", "alpha NOTE(unverified:one)")
+    monkeypatch.setattr(browser.Handler, "root", root)
+    monkeypatch.setattr(browser.Handler, "token", "s3cret")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), browser.Handler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def status(method, path, host=f"127.0.0.1:{port}", token=None, body=None):
+        headers = {"Host": host}
+        if token is not None:
+            headers[browser.TOKEN_HEADER] = token
+        conn = http.client.HTTPConnection("127.0.0.1", port)
+        try:
+            conn.request(method, path, body=body, headers=headers)
+            return conn.getresponse().status
+        finally:
+            conn.close()
+
+    try:
+        assert status("GET", "/api/pages", token="s3cret") == 200
+        assert status("GET", "/api/pages", host=f"localhost:{port}", token="s3cret") == 200
+        assert status("GET", "/") == 200  # the static page needs no token
+
+        # DNS rebinding: right socket, attacker's hostname
+        assert status("GET", "/", host=f"evil.example:{port}") == 403
+        assert status("GET", "/api/pages", host=f"evil.example:{port}", token="s3cret") == 403
+        assert status("GET", "/api/pages", host="127.0.0.1", token="s3cret") == 403
+
+        # cross-site requests cannot know the token
+        assert status("GET", "/api/pages") == 403
+        assert status("GET", "/api/page/alpha.md", token="wrong") == 403
+        claim = json.dumps({"filename": "alpha.md", "verdict": "verified", "claim": "one"})
+        assert status("POST", "/api/claim", body=claim) == 403
+        assert status("PUT", "/api/page/alpha.md", body="clobbered") == 403
+        assert "NOTE(unverified:one)" in page.read_text()
+
+        monkeypatch.setattr(browser.Handler, "token", "")
+        assert status("GET", "/api/pages", token="") == 403  # no token configured refuses all
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_resolve_refuses_paths_outside_the_corpus(root, tmp_path_factory):
+    import os
+
+    corpus.new_page(root, "Alpha", "alpha")
+    outside = tmp_path_factory.mktemp("outside") / "secret.md"
+    outside.write_text("secret")
+    (root / "meta" / "nested.md").write_text("nested")
+    (root / "link.md").symlink_to(outside)
+
+    assert corpus.resolve(root, "alpha") == root / "alpha.md"
+    assert corpus.resolve(root, "alpha.md") == root / "alpha.md"
+    assert corpus.resolve(root, os.path.relpath(outside, root)) is None
+    assert corpus.resolve(root, os.path.relpath(outside, root)[: -len(".md")]) is None
+    assert corpus.resolve(root, str(outside)) is None
+    assert corpus.resolve(root, "meta/nested.md") is None
+    assert corpus.resolve(root, "link.md") is None
+
+
 def test_verify_flags_pages_past_the_embedding_budget(root, capsys):
     import argparse
 

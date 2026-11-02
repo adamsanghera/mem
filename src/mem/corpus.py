@@ -159,10 +159,13 @@ def new_page(r: Path, title: str, body: str, **kwargs) -> Path:
 
 
 def resolve(r: Path, ref: str) -> Path | None:
-    """Resolve a page by filename (with or without .md) or by uuid."""
+    """Resolve a page by filename (with or without .md) or by uuid. Only a file
+    directly in the corpus root counts: `..`, absolute paths, subdirectories,
+    and symlinks pointing elsewhere all resolve to None."""
     name = ref if ref.endswith(".md") else f"{ref}.md"
-    if (r / name).is_file():
-        return r / name
+    path = (r / name).resolve()
+    if path.parent == r.resolve() and path.is_file():
+        return r / path.name
     for p in pages(r):
         fm, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
         if fm and str(fm.get("uuid")) == ref:

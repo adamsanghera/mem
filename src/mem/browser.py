@@ -3,7 +3,15 @@
 Browsing is admin activity, so the read-only endpoints never log usage
 events: clicks would inflate the heat that ranks everything else. Saving a
 page runs the same size and embedding checks as `mem add`, re-embeds the
-page, and logs a write. The server binds to 127.0.0.1 only.
+page, and logs a write.
+
+The server binds to 127.0.0.1, but binding alone does not keep other web
+pages out: a page can POST to loopback cross-site, and DNS rebinding lets it
+read responses under its own hostname. So every request must name our own
+Host, and every API call must carry a per-run token in a custom header. The
+token reaches the page in the URL fragment, which browsers never send to a
+server, and other origins can neither read it nor send a custom header
+without a CORS preflight, which this server never answers.
 
 The cluster view needs no dimensionality reduction: each page's k nearest
 neighbours (by cosine distance, from the sqlite index) become weighted
@@ -11,7 +19,9 @@ edges, and a force layout in the browser lets clusters emerge.
 """
 
 import contextlib
+import hmac
 import json
+import secrets
 import webbrowser
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -25,6 +35,8 @@ ASSET = Path(__file__).parent / "browser" / "index.html"
 NEIGHBOURS = 4
 LINK_MAX_DISTANCE = 0.55  # beyond this, pages are not meaningfully related
 RECENT_EVENTS = 20
+TOKEN_HEADER = "X-Mem-Token"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 
 
 class SaveError(ValueError):
@@ -201,6 +213,7 @@ def search(r: Path, query: str, k: int = 10) -> list[dict]:
 
 class Handler(BaseHTTPRequestHandler):
     root: Path = corpus.root()
+    token: str = ""  # set per run by serve(); empty refuses every API call
 
     def log_message(self, *_args) -> None:  # quiet
         pass
@@ -213,8 +226,26 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _allowed(self, path: str) -> bool:
+        """True if the request may proceed; otherwise answers it with a 403.
+        The page at / is static and needs only the Host check; /api/* also
+        needs the token."""
+        port = self.server.server_address[1]
+        if self.headers.get("Host") not in {f"{h}:{port}" for h in LOOPBACK_HOSTS}:
+            self._json({"error": "Host must be 127.0.0.1 or localhost"}, 403)
+            return False
+        if not path.startswith("/api/"):
+            return True
+        sent = self.headers.get(TOKEN_HEADER, "").encode("utf-8")
+        if not (self.token and hmac.compare_digest(sent, self.token.encode("utf-8"))):
+            self._json({"error": "missing or wrong token; open the URL `mem browse` printed"}, 403)
+            return False
+        return True
+
     def do_GET(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        if not self._allowed(url.path):
+            return
         if url.path == "/":
             body = ASSET.read_bytes()
             self.send_response(200)
@@ -244,6 +275,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        if not self._allowed(url.path):
+            return
         if not url.path.startswith("/api/page/"):
             self._json({"error": "not found"}, 404)
             return
@@ -256,6 +289,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        if not self._allowed(url.path):
+            return
         if url.path != "/api/claim":
             self._json({"error": "not found"}, 404)
             return
@@ -278,6 +313,7 @@ def serve(r: Path, port: int, open_browser: bool = True) -> None:
 
     os.environ.setdefault("MEM_SESSION", "browser")  # provenance for verdicts clicked here
     Handler.root = r
+    Handler.token = secrets.token_urlsafe(32)
     server = None
     for candidate in range(port, port + 20):  # walk past ports another app holds
         try:
@@ -287,7 +323,7 @@ def serve(r: Path, port: int, open_browser: bool = True) -> None:
             continue
     if server is None:
         raise RuntimeError(f"no free port in {port}..{port + 19}")
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    url = f"http://127.0.0.1:{server.server_address[1]}/#token={Handler.token}"
     print(
         f"mem browser on {url}  (Ctrl-C to stop; browsing logs no usage events, saves do)",
         flush=True,
