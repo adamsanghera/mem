@@ -115,7 +115,8 @@ def prepare(cfg: dict, workspace: Path, *, writable: list[Path], readable: list[
         "sandbox": {"mode": "enabled", "networkAccess": "user_config_only", "readBoundary": "workspace"},
         "permissions": {
             "allow": [f"Write({root}/**)" for root in roots],
-            "deny": [f"Write({policy_dir}/**)"],
+            # MCP servers in the user's ~/.cursor/mcp.json load without a prompt
+            "deny": [f"Write({policy_dir}/**)", "WebFetch(*)", "Mcp(*:*)"],
         },
     }
     policy = {

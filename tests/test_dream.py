@@ -477,7 +477,7 @@ def test_dreams_run_sandboxed_by_default(root, cfg, stub):
     cli_config = json.loads((Path(cfg["sandbox_config_dir"]) / "cli-config.json").read_text())
     assert cli_config["approvalMode"] == "allowlist" and cli_config["sandbox"]["mode"] == "enabled"
     assert cli_config["permissions"]["allow"] == [f"Write({root}/**)"]
-    assert cli_config["permissions"]["deny"] == [f"Write({workspace / '.cursor'}/**)"]
+    assert cli_config["permissions"]["deny"] == [f"Write({workspace / '.cursor'}/**)", "WebFetch(*)", "Mcp(*:*)"]
 
 
 def test_sandbox_off_runs_with_full_access(root, cfg, stub):
