@@ -31,7 +31,23 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import corpus, embed, fresh, index, ledger
 
-ASSET = Path(__file__).parent / "browser" / "index.html"
+ASSETS = Path(__file__).parent / "browser"
+JS = "text/javascript; charset=utf-8"
+# Third-party scripts are vendored with their version in the filename, so the
+# bytes served are the bytes reviewed. To upgrade one, `npm pack` the new
+# version, copy its minified build in, and update the <script> tag.
+STATIC = {
+    "/": (ASSETS / "index.html", "text/html; charset=utf-8"),
+    "/app.js": (ASSETS / "app.js", JS),
+    **{f"/vendor/{p.name}": (p, JS) for p in (ASSETS / "vendor").glob("*.js")},
+}
+# Inline styles stay allowed; scripts load only from this server, and the page
+# can reach nothing else, so injected markup can neither run nor send data out.
+CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+    "frame-ancestors 'none'"
+)
 NEIGHBOURS = 4
 LINK_MAX_DISTANCE = 0.55  # beyond this, pages are not meaningfully related
 RECENT_EVENTS = 20
@@ -228,8 +244,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _allowed(self, path: str) -> bool:
         """True if the request may proceed; otherwise answers it with a 403.
-        The page at / is static and needs only the Host check; /api/* also
-        needs the token."""
+        Static files need only the Host check; /api/* also needs the token."""
         port = self.server.server_address[1]
         if self.headers.get("Host") not in {f"{h}:{port}" for h in LOOPBACK_HOSTS}:
             self._json({"error": "Host must be 127.0.0.1 or localhost"}, 403)
@@ -246,11 +261,13 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if not self._allowed(url.path):
             return
-        if url.path == "/":
-            body = ASSET.read_bytes()
+        if url.path in STATIC:
+            path, content_type = STATIC[url.path]
+            body = path.read_bytes()
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Security-Policy", CSP)
             self.end_headers()
             self.wfile.write(body)
         elif url.path == "/api/pages":

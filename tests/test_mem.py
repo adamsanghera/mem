@@ -375,7 +375,14 @@ def test_browser_api_list_graph_save_and_no_read_logging(root, fake_embed, monke
     monkeypatch.setattr(embed, "embed_texts", refuse)
     with pytest.raises(browser.SaveError):
         browser.save_page(root, "alpha.md", "---\ntitle: T\n---\n\n" + "y" * 7000)
-    assert browser.ASSET.is_file()
+
+    import re
+
+    assert all(path.is_file() for path, _ in browser.STATIC.values())
+    html = browser.STATIC["/"][0].read_text()
+    scripts = re.findall(r'<script src="([^"]+)"', html)
+    assert scripts and all(src in browser.STATIC for src in scripts)  # nothing loads off-box
+    assert "<script>" not in html  # the CSP allows no inline script
 
 
 def test_browser_server_requires_loopback_host_and_token(root, monkeypatch):
@@ -391,21 +398,29 @@ def test_browser_server_requires_loopback_host_and_token(root, monkeypatch):
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    def status(method, path, host=f"127.0.0.1:{port}", token=None, body=None):
+    def fetch(method, path, host=f"127.0.0.1:{port}", token=None, body=None):
         headers = {"Host": host}
         if token is not None:
             headers[browser.TOKEN_HEADER] = token
         conn = http.client.HTTPConnection("127.0.0.1", port)
         try:
             conn.request(method, path, body=body, headers=headers)
-            return conn.getresponse().status
+            resp = conn.getresponse()
+            resp.read()
+            return resp
         finally:
             conn.close()
+
+    def status(*args, **kwargs):
+        return fetch(*args, **kwargs).status
 
     try:
         assert status("GET", "/api/pages", token="s3cret") == 200
         assert status("GET", "/api/pages", host=f"localhost:{port}", token="s3cret") == 200
-        assert status("GET", "/") == 200  # the static page needs no token
+        for path in browser.STATIC:  # static files need no token, and all carry the CSP
+            resp = fetch("GET", path)
+            assert resp.status == 200 and "script-src 'self'" in resp.getheader("Content-Security-Policy")
+        assert status("GET", "/vendor/../browser.py") == 404
 
         # DNS rebinding: right socket, attacker's hostname
         assert status("GET", "/", host=f"evil.example:{port}") == 403
