@@ -64,6 +64,7 @@ def cmd_status(args) -> None:
         "installed": launchd.plist_path(cfg["launchd_label"]).exists(),
         "loaded": launchd.loaded(cfg),
         "enabled": cfg["enabled"],
+        "sandbox": "on" if cfg["sandbox"] else "off (full access)",
         "last run": runs[-1]["ts"] if runs else "never",
         "tokens 24h": f"{state.tokens_spent(r, 24)} / {cfg['daily_token_budget']}",
         "tokens 7d": f"{state.tokens_spent(r, 24 * 7)} / {cfg['weekly_token_budget']}",
@@ -150,7 +151,7 @@ def cmd_proposals(args) -> None:
     if not rows:
         print("no open proposals")
     for path, fm in rows:
-        print(f"{path.stem}  [{fm.get('status')}] {fm.get('kind')} {fm.get('skill')}: {fm.get('reason')}")
+        print(f"{path.stem}  [{fm.get('status')}] {skills.label(fm)}: {fm.get('reason')}")
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -193,7 +194,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("-n", type=int, default=20)
     p.set_defaults(fn=cmd_log)
 
-    p = dsub.add_parser("proposals", help="skill changes held for approval")
+    p = dsub.add_parser("proposals", help="skill changes and context requests held for you")
     p.add_argument("action", nargs="?", choices=["accept", "reject"])
     p.add_argument("id", nargs="?")
     p.add_argument("--reason")

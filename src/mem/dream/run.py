@@ -25,7 +25,7 @@ from importlib import resources
 from pathlib import Path
 
 from .. import corpus, index, ledger, skillcards
-from . import config, plan, skills, state, transcripts
+from . import config, plan, sandbox, skills, state, transcripts
 
 CORPUS_LOCK = "corpus"
 SUMMARY_LIMIT = 70
@@ -65,6 +65,8 @@ def logged_in(cfg: dict) -> tuple[bool, str]:
 
 
 def create_chat(cfg: dict, cwd: Path) -> str:
+    # runs under the user's CLI config, not the sandbox's: with a custom
+    # CURSOR_CONFIG_DIR, create-chat prints the id and never exits
     out = subprocess.run(
         [*_agent_cmd(cfg), "create-chat"], cwd=cwd, capture_output=True, text=True, timeout=60
     )
@@ -86,27 +88,32 @@ def run_agent(
     session: str,
     prompt: str,
     workspace: Path,
-    add_dirs: list[Path],
+    writable: list[Path],
+    readable: list[Path],
     env: dict[str, str],
     timeout_s: float,
 ) -> AgentResult:
+    """Run one headless agent turn in `workspace`. It may write `writable`
+    and only read `readable`, unless the config turns the sandbox off."""
+    launch = sandbox.prepare(cfg, workspace, writable=writable, readable=readable)
     cmd = [
         *_agent_cmd(cfg),
         "--resume", session,
         "-p", "--output-format", "json",
-        "--trust", "--force", "--sandbox", "disabled",
+        "--trust", *launch.flags,
         "--workspace", str(workspace),
     ]
     if cfg.get("model"):
         cmd += ["--model", str(cfg["model"])]
-    for d in add_dirs:
+    for d in launch.add_dirs:
         cmd += ["--add-dir", str(d)]
     cmd.append(prompt)
     started = time.monotonic()
     proc = subprocess.Popen(
         cmd,
         cwd=workspace,
-        env={**os.environ, **env},
+        env={**os.environ, **env, **launch.env},
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -177,6 +184,21 @@ def _bullets(items: list[str], empty: str = "none") -> str:
     return "\n".join(f"   - {i}" for i in items) if items else empty
 
 
+def _sandbox_note(cfg: dict, workspace: Path, also_reads: str | None = None) -> str:
+    if not cfg["sandbox"]:
+        return ""
+    reads = f"read {also_reads}, " if also_reads else ""
+    return (
+        "## Outside context\n\n"
+        f"You run in a sandbox. You can read and write the corpus, the skill folders, and your workspace, "
+        f"{reads}and reach the embedding server `mem` uses. Nothing else on disk or the network is "
+        "reachable, and failures outside those are the sandbox, not a bug to work around. When a memory needs "
+        "context from outside (a web page, another repo, a ticket, a chat thread), request it: write "
+        f"{workspace / skills.REQUESTS_DIR}/<slug>.md with a one-line summary first, then what you need, why, "
+        "and which page it would change. The owner gathers requests in an interactive session.\n"
+    )
+
+
 def _skill_context(r: Path, cfg: dict, snaps, workspace: Path) -> dict:
     held = skills.off_limits(snaps, cfg) + [
         f"{s.root / name}/ (proposal-only)" for s in snaps for name in cfg["skill_proposal_only"]
@@ -207,6 +229,7 @@ def _finish(
         r, cfg, snaps, workspace=workspace, session=result.session, subject=subject,
         summary=result.summary or "no summary",
     )
+    requests = skills.file_requests(r, workspace, session=result.session, subject=subject)
     if outcome.committed:
         # cards cite the configured path (~/.cursor/skills/...), the one
         # agents load skills from, not where a symlink resolves
@@ -228,16 +251,18 @@ def _finish(
         "pages_changed": pages,
         "skills_committed": outcome.committed,
         "proposals": [p.name for p in outcome.proposals],
+        "context_requests": [p.name for p in requests],
         "reindexed": reindexed,
     }
 
 
-def _record(result: AgentResult, estimate: int) -> dict:
+def _record(result: AgentResult, estimate: int, cfg: dict) -> dict:
     # a killed run reports no usage, so charge its estimate
     usage = result.usage or ({"inputTokens": estimate, "estimated": True} if result.status == "timeout" else {})
     return {
         "session": result.session,
         "status": result.status,
+        "sandbox": cfg["sandbox"],
         "request_id": result.request_id,
         "usage": usage,
         "seconds": round(result.seconds, 1),
@@ -270,6 +295,7 @@ def dream_one(r: Path, cfg: dict, cand: plan.Candidate) -> dict:
         mem_root=r,
         touched=", ".join(cand.touched) or "none",
         prune="; ".join(cand.prune) or "none",
+        sandbox_note=_sandbox_note(cfg, workspace, "the subject's transcript"),
         **_skill_context(r, cfg, snaps, workspace),
     )
     result = run_agent(
@@ -277,7 +303,8 @@ def dream_one(r: Path, cfg: dict, cand: plan.Candidate) -> dict:
         session=session,
         prompt=prompt,
         workspace=workspace,
-        add_dirs=[r, cand.transcript.path.parent, *[s.root for s in snaps]],
+        writable=[r, *[s.root for s in snaps]],
+        readable=[cand.transcript.path.parent],
         env={
             "MEM_ROOT": str(r),
             "MEM_SESSION": session,
@@ -291,7 +318,7 @@ def dream_one(r: Path, cfg: dict, cand: plan.Candidate) -> dict:
         "subject_session": subject,
         "estimate": cand.estimate,
         "digest_chars": len(cand.digest.text) if cand.digest else 0,
-        **_record(result, cand.estimate),
+        **_record(result, cand.estimate, cfg),
     }
     if result.did_nothing:
         state.log(r, record)
@@ -385,6 +412,7 @@ def consolidate(r: Path, cfg: dict, since_commit: str | None, force: bool = Fals
         skill_hint=_skill_hint(cfg),
         scope=_bullets(scope),
         digest_file=corpus.meta_dir(r) / f"consolidation-{stamp}.md",
+        sandbox_note=_sandbox_note(cfg, workspace),
         **_skill_context(r, cfg, snaps, workspace),
     )
     result = run_agent(
@@ -392,12 +420,13 @@ def consolidate(r: Path, cfg: dict, since_commit: str | None, force: bool = Fals
         session=session,
         prompt=prompt,
         workspace=workspace,
-        add_dirs=[r, *[s.root for s in snaps]],
+        writable=[r, *[s.root for s in snaps]],
+        readable=[],
         env={"MEM_ROOT": str(r), "MEM_SESSION": session, "MEM_SESSION_KIND": "consolidate"},
         timeout_s=cfg["consolidate_timeout_minutes"] * 60,
     )
     if result.did_nothing:
-        record = {"event": "consolidate", "scope": len(scope), "estimate": estimate, **_record(result, estimate)}
+        record = {"event": "consolidate", "scope": len(scope), "estimate": estimate, **_record(result, estimate, cfg)}
         state.log(r, record)
         return record
     finished = _finish(
@@ -411,7 +440,7 @@ def consolidate(r: Path, cfg: dict, since_commit: str | None, force: bool = Fals
         "event": "consolidate",
         "scope": len(scope),
         "estimate": estimate,
-        **_record(result, estimate),
+        **_record(result, estimate, cfg),
         **finished,
     }
     state.log(r, record)

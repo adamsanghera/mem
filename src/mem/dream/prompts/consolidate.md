@@ -21,6 +21,7 @@ Changes to these are always held as proposals: $held
 Proposals still waiting on the owner. Don't file the same change again; if yours goes further, say so in your note: $pending
 Proposals the owner rejected, which you should not make again: $rejected
 
+$sandbox_note
 ## Rules
 
 - Never store secrets.

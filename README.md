@@ -201,6 +201,15 @@ mem dream proposals accept <id>      # apply and commit; apply only if the file 
 mem dream proposals reject <id> --reason "..."
 ```
 
+Transcripts carry text from outside (web pages, PR comments, tool output),
+so a dream runs in the agent CLI's sandbox. It can read and write the
+corpus, the skill folders, and its workspace, read its transcript, and
+reach the embedding server; nothing else on disk or the network. When a
+memory needs outside context, the dream files a context request in the
+proposal queue instead. Gather it in an interactive session, then
+`mem dream proposals accept <id>` marks it picked up.
+`mem dream config set sandbox false` gives dreams full access again.
+
 Other controls: `mem dream status`, `pause`, `resume`, `log`,
 `digest <session>`, `run --session <id>`, `consolidate`, and
 `config [get|set] <key> <value>` for the idle time, budgets, model, and the

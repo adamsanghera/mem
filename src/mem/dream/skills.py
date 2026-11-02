@@ -12,6 +12,9 @@ against a snapshot taken before the run and sorts each changed skill folder:
 
 Doing this after the fact, from bytes on disk, means the rules hold whatever
 the agent believed it was doing.
+
+The proposal queue also carries context requests: outside context a
+sandboxed run could not fetch, left for an interactive session to gather.
 """
 
 import difflib
@@ -25,6 +28,8 @@ from . import config
 
 SKIP_DIRS = {".git", "__pycache__", "node_modules"}
 NOTES_DIR = "skill-notes"
+REQUESTS_DIR = "context-requests"
+SUMMARY_LIMIT = 160
 
 
 def _git(repo: Path, *args: str, input: str | None = None) -> subprocess.CompletedProcess:
@@ -251,6 +256,41 @@ def settle(
     return outcome
 
 
+def file_requests(r: Path, workspace: Path, *, session: str, subject: str | None) -> list[Path]:
+    """File each context request a run left in its workspace as a proposal
+    of kind `context`, then delete the request. A request is a Markdown file
+    whose first line summarizes what outside context the run needed."""
+    filed = []
+    requests_dir = workspace / REQUESTS_DIR
+    if not requests_dir.is_dir():
+        return filed
+    for request in sorted(p for p in requests_dir.iterdir() if p.is_file()):
+        text = request.read_text(encoding="utf-8", errors="replace").strip()
+        request.unlink()
+        if not text:
+            continue
+        summary = text.splitlines()[0].lstrip("# ").strip()
+        fm = {
+            "status": "open",
+            "kind": "context",
+            "skill": "",
+            "reason": summary[:SUMMARY_LIMIT],
+            "session": session,
+            "subject_session": subject,
+            "created": corpus.now_iso(),
+        }
+        slug = corpus.slugify(f"{fm['created'][:10]}-context-{summary[:40]}")
+        path = proposals_dir(r) / corpus.unique_filename(proposals_dir(r), slug)
+        path.write_text(corpus.build_page(fm, f"## Request\n\n{text}\n"), encoding="utf-8")
+        filed.append(path)
+    return filed
+
+
+def label(fm: dict) -> str:
+    """`edit beta`, `new gamma`, or `context` for a context request."""
+    return " ".join(str(part) for part in (fm.get("kind"), fm.get("skill")) if part)
+
+
 _DIFF_RE = re.compile(r"```diff\n(.*)```\n", re.S)
 
 
@@ -288,6 +328,12 @@ def accept(r: Path, ref: str) -> str:
     path, fm, body = find_proposal(r, ref)
     if fm.get("status") != "open":
         raise ValueError(f"{path.name} is {fm.get('status')}")
+    if fm.get("kind") == "context":
+        # nothing to apply: an interactive session did the work
+        fm["status"] = "accepted"
+        fm["accepted_note"] = "picked up"
+        _save(path, fm, body)
+        return f"{path.stem}: marked picked up"
     m = _DIFF_RE.search(body)
     repo = Path(fm["repo"])
     if not m or repo_of(repo) is None:
@@ -336,16 +382,16 @@ def open_summaries(r: Path) -> list[str]:
         if fm.get("status") != "open":
             continue
         m = _WHY_RE.search(body)
-        why = " ".join(m.group(1).split()) if m else ""
-        why = why if len(why) <= 160 else why[:159] + "…"
-        lines.append(f"{fm.get('kind')} {fm.get('skill')} ({path.stem}): {why}")
+        why = " ".join(m.group(1).split()) if m else str(fm.get("reason") or "")
+        why = why if len(why) <= SUMMARY_LIMIT else why[: SUMMARY_LIMIT - 1] + "…"
+        lines.append(f"{label(fm)} ({path.stem}): {why}")
     return lines
 
 
 def rejected_summaries(r: Path) -> list[str]:
     """One line per rejected proposal, so later runs don't make it again."""
     return [
-        f"{fm.get('kind')} {fm.get('skill')}: {fm.get('reason')}"
+        f"{label(fm)}: {fm.get('reason')}"
         + (f" (rejected: {fm['rejected_because']})" if fm.get("rejected_because") else "")
         for _, fm, _ in load_proposals(r)
         if fm.get("status") == "rejected"

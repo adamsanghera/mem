@@ -46,6 +46,7 @@ def cfg(root, tmp_path):
         chats_root=str(chats),
         skill_roots=[],
         min_new_chars=10,
+        sandbox_config_dir=str(tmp_path / "agent-config"),
     )
     return c
 
@@ -348,7 +349,12 @@ STUB = textwrap.dedent(
         f.write(json.dumps({"kind": os.environ.get("MEM_SESSION_KIND"),
                             "from": os.environ.get("MEM_DREAMED_FROM"),
                             "session": os.environ.get("MEM_SESSION"),
+                            "config_dir": os.environ.get("CURSOR_CONFIG_DIR"),
                             "argv": sys.argv[1:-1], "prompt": prompt}) + "\\n")
+    if os.environ.get("STUB_REQUEST") and os.environ.get("MEM_SESSION_KIND") == "dream":
+        requests = Path.cwd() / "context-requests"
+        requests.mkdir(exist_ok=True)
+        (requests / "warmup-runbook.md").write_text("Read the warmup runbook\\n\\nIt lives in the ops wiki.\\n")
     if os.environ.get("STUB_SLEEP"):
         time.sleep(float(os.environ["STUB_SLEEP"]))
     if os.environ.get("MEM_SESSION_KIND") == "dream":
@@ -441,6 +447,73 @@ def test_run_kills_a_dream_at_its_timeout(root, cfg, stub, monkeypatch):
     assert time.monotonic() - started < 20
     assert dream["status"] == "timeout"
     assert dream["usage"]["estimated"] and dream["usage"]["inputTokens"] == dream["estimate"]
+
+
+# ---- sandbox --------------------------------------------------------------
+
+
+def argv_values(argv, flag):
+    return [argv[i + 1] for i, a in enumerate(argv) if a == flag]
+
+
+def test_dreams_run_sandboxed_by_default(root, cfg, stub):
+    transcript = write_transcript(cfg, prompts=["q"])
+    run.run(root, cfg, consolidate_after=False, out=lambda *_: None)
+    [call] = [json.loads(line) for line in stub.read_text().splitlines()]
+
+    assert "--force" not in call["argv"]
+    assert argv_values(call["argv"], "--sandbox") == ["enabled"]
+    assert argv_values(call["argv"], "--add-dir") == [str(root)]  # the transcript is read-only
+    assert call["config_dir"] == cfg["sandbox_config_dir"]
+    assert "context-requests" in call["prompt"]
+
+    workspace = plan.workspace_dir(root)
+    policy = json.loads((workspace / ".cursor" / "sandbox.json").read_text())
+    assert policy["readBoundary"] == "workspace"
+    assert str(transcript.parent) in policy["additionalReadPaths"]
+    assert policy["additionalReadwritePaths"] == [str(root)]
+    assert policy["networkPolicy"]["default"] == "deny" and "127.0.0.1" in policy["networkPolicy"]["allow"]
+
+    cli_config = json.loads((Path(cfg["sandbox_config_dir"]) / "cli-config.json").read_text())
+    assert cli_config["approvalMode"] == "allowlist" and cli_config["sandbox"]["mode"] == "enabled"
+    assert cli_config["permissions"]["allow"] == [f"Write({root}/**)"]
+    assert cli_config["permissions"]["deny"] == [f"Write({workspace / '.cursor'}/**)"]
+
+
+def test_sandbox_off_runs_with_full_access(root, cfg, stub):
+    transcript = write_transcript(cfg, prompts=["q"])
+    cfg["sandbox"] = False
+    [dream] = run.run(root, cfg, consolidate_after=False, out=lambda *_: None)
+    [call] = [json.loads(line) for line in stub.read_text().splitlines()]
+    assert "--force" in call["argv"] and argv_values(call["argv"], "--sandbox") == ["disabled"]
+    assert str(transcript.parent) in argv_values(call["argv"], "--add-dir")
+    assert call["config_dir"] is None
+    assert "Outside context" not in call["prompt"]
+    assert dream["sandbox"] is False
+
+
+def test_sandbox_refuses_a_config_dir_the_dream_could_write(root, cfg):
+    from mem.dream import sandbox
+
+    cfg["sandbox_config_dir"] = str(root / "meta" / "agent-config")
+    with pytest.raises(RuntimeError, match="inside a root the dream can write"):
+        sandbox.prepare(cfg, plan.workspace_dir(root), writable=[root], readable=[])
+
+
+def test_context_requests_become_proposals(root, cfg, stub, monkeypatch):
+    write_transcript(cfg, prompts=["q"])
+    monkeypatch.setenv("STUB_REQUEST", "1")
+    [dream] = run.run(root, cfg, consolidate_after=False, out=lambda *_: None)
+
+    [(path, fm, body)] = skills.load_proposals(root)
+    assert fm["kind"] == "context" and fm["status"] == "open"
+    assert fm["reason"] == "Read the warmup runbook" and "ops wiki" in body
+    assert dream["context_requests"] == [path.name]
+    assert not any((plan.workspace_dir(root) / skills.REQUESTS_DIR).iterdir())
+    assert skills.open_summaries(root) == [f"context ({path.stem}): Read the warmup runbook"]
+
+    assert skills.accept(root, path.stem) == f"{path.stem}: marked picked up"
+    assert skills.load_proposals(root)[0][1]["status"] == "accepted"
 
 
 # ---- launchd and config ---------------------------------------------------
