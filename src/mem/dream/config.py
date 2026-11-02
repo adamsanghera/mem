@@ -8,7 +8,10 @@ from .. import corpus
 
 DEFAULTS: dict = {
     "enabled": True,
+    # runs every interval_minutes (which must divide a day), aligned to
+    # run_at local time; a run missed while the Mac sleeps happens on wake
     "interval_minutes": 1440,
+    "run_at": "04:00",
     "idle_hours": 2.0,
     # a transcript written to this recently is still being worked on, even
     # when the user has not sent a prompt for a while

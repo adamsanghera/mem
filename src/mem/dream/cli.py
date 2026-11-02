@@ -19,7 +19,7 @@ def cmd_install(args) -> None:
     path = launchd.install(r, cfg)
     minutes = int(cfg["interval_minutes"])
     every = f"{minutes // 60} hours" if minutes % 60 == 0 else f"{minutes} minutes"
-    print(f"installed {path}; `mem dream run` every {every}")
+    print(f"installed {path}; `mem dream run` every {every} from {cfg['run_at']}, or on wake if asleep")
 
 
 def cmd_uninstall(args) -> None:

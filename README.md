@@ -171,7 +171,7 @@ learnings reach the corpus after the fact. On macOS:
 
 ```bash
 mem dream plan       # every session's verdict and the reason; spends no tokens
-mem dream install    # a launchd job runs `mem dream run` once a day
+mem dream install    # a launchd job runs `mem dream run` daily at 04:00, or on wake
 ```
 
 Each run looks for Cursor agent sessions whose user has been away for two

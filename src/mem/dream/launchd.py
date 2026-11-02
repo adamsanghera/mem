@@ -1,4 +1,4 @@
-"""The per-user launchd job that runs `mem dream run` every few minutes.
+"""The per-user launchd job that runs `mem dream run` on a schedule.
 
 launchd starts jobs with a bare environment, so the plist pins absolute
 paths: the mem executable, the install-time PATH (where `agent`, `git`, and
@@ -14,6 +14,8 @@ from pathlib import Path
 
 from . import config
 
+MINUTES_PER_DAY = 24 * 60
+
 
 def plist_path(label: str) -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
@@ -28,13 +30,31 @@ def mem_executable() -> str:
     return found or str(Path(sys.argv[0]).resolve())
 
 
+def schedule(cfg: dict) -> list[dict]:
+    """Calendar entries for a run every `interval_minutes`, aligned to the
+    local time `run_at` (HH:MM). Not StartInterval: launchd drops an
+    interval that comes due while the Mac sleeps, so on a laptop a daily
+    interval may never fire, while a missed calendar time runs on wake."""
+    interval = int(cfg["interval_minutes"])
+    if interval <= 0 or MINUTES_PER_DAY % interval:
+        raise RuntimeError(f"interval_minutes must divide a day ({MINUTES_PER_DAY}); got {interval}")
+    try:
+        hour, minute = (int(part) for part in str(cfg["run_at"]).split(":"))
+    except ValueError:
+        raise RuntimeError(f"run_at must be HH:MM; got {cfg['run_at']!r}") from None
+    if not (0 <= hour < 24 and 0 <= minute < 60):
+        raise RuntimeError(f"run_at must be HH:MM; got {cfg['run_at']!r}")
+    first = (hour * 60 + minute) % interval
+    return [{"Hour": t // 60, "Minute": t % 60} for t in range(first, MINUTES_PER_DAY, interval)]
+
+
 def render(r: Path, cfg: dict, mem_path: str, path_env: str) -> bytes:
     log = config.state_dir(r) / "launchd.log"
     return plistlib.dumps(
         {
             "Label": cfg["launchd_label"],
             "ProgramArguments": [mem_path, "dream", "run"],
-            "StartInterval": int(cfg["interval_minutes"]) * 60,
+            "StartCalendarInterval": schedule(cfg),
             "RunAtLoad": False,
             "ProcessType": "Background",
             "LowPriorityIO": True,

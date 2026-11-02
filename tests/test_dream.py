@@ -94,6 +94,15 @@ def test_project_slug_keeps_the_path_as_given():
     assert transcripts.project_slug(Path("/tmp/mem/meta/dreams/workspace")) == "tmp-mem-meta-dreams-workspace"
 
 
+def test_a_session_that_moved_workspaces_is_one_transcript(cfg):
+    write_transcript(cfg, project="old", age_s=30 * HOUR)
+    newer = write_transcript(cfg, project="new", age_s=3 * HOUR)
+    write_transcript(cfg, session="other", project="old")
+    found = transcripts.discover(cfg)
+    assert sorted(t.session for t in found) == sorted([SESSION, "other"])
+    assert next(t.path for t in found if t.session == SESSION) == newer
+
+
 def test_parse_timestamp():
     when = transcripts.parse_timestamp("Friday, Oct 23, 2026, 12:46 PM (UTC-4)")
     assert (when.year, when.month, when.day, when.hour, when.minute) == (2026, 10, 23, 12, 46)
@@ -539,9 +548,23 @@ def test_plist_render(root, cfg):
     data = plistlib.loads(launchd.render(root, cfg, "/bin/mem", "/usr/bin:/bin"))
     assert data["Label"] == cfg["launchd_label"]
     assert data["ProgramArguments"] == ["/bin/mem", "dream", "run"]
-    assert data["StartInterval"] == cfg["interval_minutes"] * 60
+    assert "StartInterval" not in data  # its firings are dropped while the Mac sleeps
+    assert data["StartCalendarInterval"] == [{"Hour": 4, "Minute": 0}]
     assert data["EnvironmentVariables"]["MEM_ROOT"] == str(root)
     assert data["EnvironmentVariables"]["PYTHONUNBUFFERED"] == "1"
+
+
+def test_schedule_aligns_to_run_at_and_rejects_bad_settings(cfg):
+    cfg.update(interval_minutes=360, run_at="03:30")
+    assert launchd.schedule(cfg) == [
+        {"Hour": 3, "Minute": 30}, {"Hour": 9, "Minute": 30}, {"Hour": 15, "Minute": 30}, {"Hour": 21, "Minute": 30}
+    ]
+    cfg.update(interval_minutes=30, run_at="00:10")
+    assert len(launchd.schedule(cfg)) == 48 and launchd.schedule(cfg)[0] == {"Hour": 0, "Minute": 10}
+    for interval, at in ((7, "04:00"), (2880, "04:00"), (0, "04:00"), (1440, "4am"), (1440, "25:00")):
+        cfg.update(interval_minutes=interval, run_at=at)
+        with pytest.raises(RuntimeError):
+            launchd.schedule(cfg)
 
 
 def test_config_set_keeps_types_and_rejects_unknown_keys(root):

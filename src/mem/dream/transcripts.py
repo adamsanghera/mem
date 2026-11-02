@@ -51,15 +51,25 @@ class Transcript:
 
 
 def discover(cfg: dict) -> list[Transcript]:
-    found = []
+    """One transcript per session. A chat that moves to another workspace
+    leaves its old transcript behind under the old project and continues in
+    a copy under the new one, so the most recently written copy wins:
+    watermarks are byte offsets into one file per session."""
+    found: dict[str, Transcript] = {}
+
+    def keep(t: Transcript) -> None:
+        prior = found.get(t.session)
+        if prior is None or t.path.stat().st_mtime > prior.path.stat().st_mtime:
+            found[t.session] = t
+
     for pattern in cfg["transcript_roots"]:
         for root in map(Path, glob.glob(str(config.expand(pattern)))):
             for path in root.glob("*/*.jsonl"):
                 if path.stem == path.parent.name:
-                    found.append(Transcript(path.stem, path, False))
+                    keep(Transcript(path.stem, path, False))
             for path in root.glob("*/subagents/*.jsonl"):
-                found.append(Transcript(path.stem, path, True))
-    return found
+                keep(Transcript(path.stem, path, True))
+    return list(found.values())
 
 
 def project_slug(path: Path) -> str:

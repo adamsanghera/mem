@@ -1,7 +1,7 @@
 """Dreams: headless agent runs that reflect on one quiet session's transcript.
 
-A per-machine scheduler (launchd, via `mem dream install`) wakes every few
-minutes and runs `mem dream run`. That plans, with no tokens, which sessions
+A per-machine scheduler (launchd, via `mem dream install`) runs `mem dream
+run` on a schedule, daily by default. That plans, with no tokens, which sessions
 have gone quiet with something new to learn from, then starts one headless
 agent per chosen session. Each dream reads only its own subject's transcript
 digest, adds and prunes memories, and may fix skills; the runner commits what
