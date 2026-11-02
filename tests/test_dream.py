@@ -232,8 +232,24 @@ def settle(root, cfg, snaps, tmp_path):
     return skills.settle(root, cfg, snaps, workspace=tmp_path, session="dream-1", subject=SESSION, summary="fix")
 
 
+def test_sandboxed_runs_hold_even_a_small_skill_edit(root, cfg, skill_repo, tmp_path):
+    repo, skills_root = skill_repo
+    snaps = skills.snapshot(cfg)
+    assert skills.off_limits(snaps, cfg) == ["every skill folder: this run is sandboxed, so all skill changes are held"]
+    md = skills_root / "alpha" / "SKILL.md"
+    before = md.read_text()
+    md.write_text(before.replace("step 3\n", "step 3, then check the cache\n"))
+    outcome = settle(root, cfg, snaps, tmp_path)
+    assert outcome.committed == [] and len(outcome.proposals) == 1
+    [(_, fm, _)] = skills.load_proposals(root)
+    assert fm["kind"] == "edit" and "sandboxed" in fm["reason"]
+    assert md.read_text() == before
+    assert git(repo, "log", "--oneline").count("\n") == 1
+
+
 def test_small_skill_edit_is_committed_without_touching_other_work(root, cfg, skill_repo, tmp_path):
     repo, skills_root = skill_repo
+    cfg["sandbox"] = False  # only full-access runs commit skill edits
     (repo / "README.md").write_text("owner's work in progress\n")
     snaps = skills.snapshot(cfg)
     md = skills_root / "alpha" / "SKILL.md"

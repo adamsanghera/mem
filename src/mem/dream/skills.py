@@ -4,7 +4,8 @@ Agents edit skills in place. Afterwards the runner compares every skill root
 against a snapshot taken before the run and sorts each changed skill folder:
 
 - a fix or small improvement to an existing skill is committed to the skill
-  repo, with a pathspec so the owner's other uncommitted work stays put;
+  repo, with a pathspec so the owner's other uncommitted work stays put,
+  but only when dreams run with full access (`sandbox: false`);
 - a new skill, a deleted one, a large rewrite, a change to a file that already
   had uncommitted edits, a change to a proposal-only skill, or any change in a
   root outside git is restored byte for byte and written up as a proposal
@@ -101,6 +102,8 @@ def snapshot(cfg: dict) -> list[RootSnapshot]:
 
 def off_limits(snaps: list[RootSnapshot], cfg: dict) -> list[str]:
     """What the instructions should tell the agent not to touch."""
+    if cfg["sandbox"] and snaps:
+        return ["every skill folder: this run is sandboxed, so all skill changes are held"]
     lines = [f"{s.root / rel}" for s in snaps for rel in sorted(s.dirty)]
     lines += [f"{s.root}/ (not in git: propose, don't edit)" for s in snaps if s.repo is None]
     return lines
@@ -224,6 +227,10 @@ def settle(
                 if churn > cfg["skill_edit_max_churn"]:
                     kind = "rewrite"
                     reason = f"changes {churn:.0%} of the skill (limit {cfg['skill_edit_max_churn']:.0%})"
+            if reason is None and cfg["sandbox"]:
+                # every later agent loads skills, so an edit planted by a prompt
+                # injection would outlive the sandboxed run that made it
+                reason = "sandboxed runs hold every skill change for the owner"
             if reason is None:
                 accepted.extend(str(snap.root / rel) for rel in sorted(changed))
                 accepted_skills.append(skill)

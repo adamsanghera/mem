@@ -42,7 +42,8 @@ DEFAULTS: dict = {
     "consolidate_timeout_minutes": 30,
     "agent_cmd": "agent",
     # false runs dreams with the agent's full access: any file, any host,
-    # any command (see sandbox.py for what true allows)
+    # any command, and small skill edits commit without review (see
+    # sandbox.py for what true allows)
     "sandbox": True,
     # the sandboxed agent's private CLI config; must be outside the corpus,
     # the skill roots, and the workspace

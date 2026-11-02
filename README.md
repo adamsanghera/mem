@@ -191,9 +191,11 @@ run's tokens, so cost is bounded from outside: each run is estimated before it
 starts and checked against daily and weekly budgets, a timeout kills
 runaways, and the usage each run reports is charged afterwards.
 
-Dreams and consolidations may fix or improve an existing skill directly. A
-new skill, a deletion, a rewrite of most of a skill, or a change to a file
-with uncommitted edits is restored and held as a proposal:
+Dreams and consolidations edit skills in place, and the runner restores
+each change and holds it as a proposal. With the sandbox off (below), a
+small fix to an existing skill is committed directly; a new skill, a
+deletion, a rewrite of most of a skill, or a change to a file with
+uncommitted edits is still held:
 
 ```bash
 mem dream proposals                  # open proposals
@@ -208,7 +210,8 @@ reach the embedding server; nothing else on disk or the network. When a
 memory needs outside context, the dream files a context request in the
 proposal queue instead. Gather it in an interactive session, then
 `mem dream proposals accept <id>` marks it picked up.
-`mem dream config set sandbox false` gives dreams full access again.
+`mem dream config set sandbox false` gives dreams full access again, and
+lets them commit small skill fixes.
 
 Other controls: `mem dream status`, `pause`, `resume`, `log`,
 `digest <session>`, `run --session <id>`, `consolidate`, and
