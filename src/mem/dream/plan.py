@@ -157,10 +157,7 @@ def evaluate(
         cand.verdict = "skip:thin"
         cand.reason = f"{new} new prompts, {len(dg.text)} chars, nothing to prune"
         return cand
-    if not force and (
-        spent_day + cand.estimate > cfg["daily_token_budget"]
-        or spent_week + cand.estimate > cfg["weekly_token_budget"]
-    ):
+    if not force and state.over_budget(cfg, cand.estimate, spent_day, spent_week):
         cand.verdict = "wait:budget"
         cand.reason = f"~{cand.estimate} tokens; spent {spent_day} today, {spent_week} this week"
         return cand

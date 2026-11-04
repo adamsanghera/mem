@@ -98,6 +98,15 @@ def tokens_spent(r: Path, hours: float) -> int:
     return total
 
 
+def over_budget(cfg: dict, estimate: int, spent_day: int, spent_week: int) -> bool:
+    """Whether spending `estimate` more tokens would pass the daily or weekly
+    budget. A budget set to null is no budget."""
+    day, week = cfg["daily_token_budget"], cfg["weekly_token_budget"]
+    return (day is not None and spent_day + estimate > day) or (
+        week is not None and spent_week + estimate > week
+    )
+
+
 def consolidated(r: Path) -> dict:
     path = config.state_dir(r) / "consolidated.json"
     if not path.is_file():

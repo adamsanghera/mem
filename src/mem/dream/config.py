@@ -29,6 +29,7 @@ DEFAULTS: dict = {
     # runs well past the size of what it was given
     "overhead_tokens": 40000,
     "max_input_tokens_per_dream": 150000,
+    # null for no budget
     "daily_token_budget": 1000000,
     "weekly_token_budget": 4000000,
     # high enough that a daily run reaches the day's sessions before they age

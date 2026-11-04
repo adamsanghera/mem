@@ -204,6 +204,8 @@ def test_plan_defers_over_budget(root, cfg):
     write_transcript(cfg, prompts=["q"])
     state.log(root, {"event": "dream", "usage": {"inputTokens": cfg["daily_token_budget"]}})
     assert verdicts(root, cfg)[SESSION].verdict == "wait:budget"
+    cfg.update(daily_token_budget=None, weekly_token_budget=None)  # no budget
+    assert verdicts(root, cfg)[SESSION].verdict == "dream"
 
 
 def test_try_lock_is_exclusive(root):

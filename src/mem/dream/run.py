@@ -392,10 +392,7 @@ def consolidate(r: Path, cfg: dict, since_commit: str | None, force: bool = Fals
         + cfg["consolidate_base_tokens"]
         + sum((r / name).stat().st_size for name in scope) // 4
     )
-    over_budget = (
-        state.tokens_spent(r, 24) + estimate > cfg["daily_token_budget"]
-        or state.tokens_spent(r, 24 * 7) + estimate > cfg["weekly_token_budget"]
-    )
+    over_budget = state.over_budget(cfg, estimate, state.tokens_spent(r, 24), state.tokens_spent(r, 24 * 7))
     if not force and (estimate > cfg["max_input_tokens_per_consolidation"] or over_budget):
         record = {"event": "consolidate", "status": "deferred", "estimate": estimate, "scope": len(scope)}
         state.log(r, record)
@@ -484,9 +481,8 @@ def run(
                 return records
         baseline = head(r)
         for cand in chosen:
-            if session is None and (
-                state.tokens_spent(r, 24) + cand.estimate > cfg["daily_token_budget"]
-                or state.tokens_spent(r, 24 * 7) + cand.estimate > cfg["weekly_token_budget"]
+            if session is None and state.over_budget(
+                cfg, cand.estimate, state.tokens_spent(r, 24), state.tokens_spent(r, 24 * 7)
             ):
                 break
             with state.try_lock(r, plan.subject_lock(cand.session)) as mine:
