@@ -35,6 +35,7 @@ Leave these out, and remove memories like them:
 
 Skill folders you may change: $skill_roots
 Fix and improve skills freely when the session showed a step was wrong, missing, or stale, or a description failed to fire: edit in place. When in doubt, edit. A new skill, deleting one, or rewriting or extending most of one is also done in place, and the runner holds it back as a proposal for the owner. For each skill you change, write a few sentences on why to $notes_dir/<skill-folder>.md. Proposals carry them.
+Prefer scripts to steps. When the session ran the same sequence of commands more than once, or did by hand a multi-step chore a script could do (gathering logs, checking a status, a fixed series of queries), encode it as a script in the skill that owns that work: `scripts/<name>` beside its SKILL.md, with one line in SKILL.md saying when to run it. A future agent runs a script in one call; it re-reads and retypes a list of steps, and gets them wrong. Make the script run as-is, with arguments for what varies and no placeholders. If you cannot run it from here, say so in your note.
 Changes to these are always held as proposals: $held
 Proposals still waiting on the owner. Don't file the same change again; if yours goes further, say so in your note: $pending
 Proposals the owner rejected, which you should not make again: $rejected

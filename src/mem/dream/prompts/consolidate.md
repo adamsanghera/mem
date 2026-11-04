@@ -17,6 +17,7 @@ $scope
 
 Skill folders you may change: $skill_roots
 Fix and improve skills freely: edit in place. When in doubt, edit. A graduation into an existing skill that stays small is a direct edit. A new skill, deleting one, or rewriting or extending most of one is also done in place, and the runner holds it back as a proposal for the owner. For each skill you change, write a few sentences on why to $notes_dir/<skill-folder>.md. Proposals carry them.
+Prefer scripts to steps. A page in scope whose body is mostly a manual command procedure that sessions keep reading is a script waiting to be written: encode the procedure as `scripts/<name>` in the skill that owns that work, with one line in SKILL.md saying when to run it, and cut the page down to when and why. Make the script run as-is, with arguments for what varies and no placeholders. If you cannot run it from here, say so in your note.
 Changes to these are always held as proposals: $held
 Proposals still waiting on the owner. Don't file the same change again; if yours goes further, say so in your note: $pending
 Proposals the owner rejected, which you should not make again: $rejected
