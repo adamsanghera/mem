@@ -73,23 +73,29 @@ page was outdated, fix it and run `mem reindex`.
 
 ## 3. Record
 
-Write a memory when any of these happen:
+Memory exists to save a later session labor: with the page, it goes from
+the question to the answer and skips the tool calls you needed. Write one
+when learning it took an investigation, or the answer was surprising, and a
+later session is likely to ask again. State the answer, how you know it,
+and any wrong turn that looked right. For a value that changes, save the
+command that fetches it. When the answer is one obvious call away, skip it:
+every page is one more thing to keep true.
 
-- A fix or answer took real digging: several attempts, reading source,
-  chasing logs or docs. Save the conclusion, not the journey.
-- The user corrected an assumption, fact, or approach. Save the correction
-  and the reason.
-- You hit a tool, API, or configuration quirk that will bite again.
-- A decision was made with a rationale: chose X over Y because Z.
-- You learned a stable, non-obvious fact about a person, team, service, or
-  codebase.
-- You rated a memory partial or outdated. Extend or fix the page.
+What usually passes that test:
+
+- A fix or answer that took real digging: several attempts, reading source,
+  chasing logs or docs.
+- A tool, API, or configuration quirk that will bite again.
+- A decision and its rationale: chose X over Y because Z.
+- A non-obvious fact about a person, team, service, or codebase.
+
+Always save a correction from the user (an assumption, fact, or approach)
+with its reason, whatever it cost to learn: it saves them repeating it. When
+you rate a page partial or outdated, extend or fix that page.
 
 Put a fact where it lives. If it belongs to one module, write it into that
 module's code or docs. Memory is for knowledge with no single home in code:
-cross-module shape, incidents, decisions, tool quirks, people. When in
-doubt, write it. Irrelevant pages are never surfaced, so the only bad memory
-is the unwritten one.
+cross-module shape, incidents, decisions, tool quirks, people.
 
 ```bash
 mem add --title "Short specific title" \
@@ -115,7 +121,7 @@ split it into pages of one topic each. Always cite sources. Never store secrets 
 ## Wrap-up, before the final summary
 
 1. If you read memories this session, rate each one.
-2. If a write trigger fired, save the page now.
+2. If something you learned passes the test in Record, save the page now.
 3. If you wrote anything as a hypothesis, settle it or mark it
    `NOTE(unverified:<id>)`.
 4. Mention each save in the summary as "saved memory: <title>" so the user
