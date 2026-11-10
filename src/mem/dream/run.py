@@ -78,10 +78,19 @@ def create_chat(cfg: dict, cwd: Path) -> str:
     return chat
 
 
+_TAG_LINE_RE = re.compile(r"^\{[^{}]*\}$")
+
+
 def _summary(text: str) -> str:
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    last = lines[-1].strip("*_` ") if lines else "no summary"
-    return last if len(last) <= SUMMARY_LIMIT else last[: SUMMARY_LIMIT - 1] + "…"
+    """The last line of an agent's reply that was written for a person,
+    clipped. The owner's standing rules reach headless agents too, and one
+    can make a reply end with a tag for a machine (`{waiting-on:nothing}`),
+    so a line that is only a braced tag or only punctuation is passed over."""
+    for line in reversed((text or "").splitlines()):
+        line = line.strip().strip("*_` ")
+        if any(ch.isalnum() for ch in line) and not _TAG_LINE_RE.match(line):
+            return line if len(line) <= SUMMARY_LIMIT else line[: SUMMARY_LIMIT - 1] + "…"
+    return "no summary"
 
 
 def run_agent(

@@ -532,6 +532,17 @@ def test_run_dreams_commits_and_consolidates(root, cfg, stub):
     assert verdicts(root, cfg)[SESSION].verdict == "skip:dreamed"
 
 
+def test_summary_is_the_last_line_written_for_a_person():
+    assert run._summary("work\n\nAdded cache warmup page") == "Added cache warmup page"
+    assert run._summary("Pruned 3 pages\n\n{waiting-on:nothing}\n") == "Pruned 3 pages"
+    assert run._summary("**Tightened two pages**\n```\n") == "Tightened two pages"
+    assert run._summary("Fixed {braces} inside a sentence") == "Fixed {braces} inside a sentence"
+    assert run._summary("{waiting-on:nothing}") == "no summary"
+    assert run._summary("") == "no summary" and run._summary(None) == "no summary"
+    clipped = run._summary("x" * 200)
+    assert len(clipped) == run.SUMMARY_LIMIT and clipped.endswith("…")
+
+
 def test_run_stops_before_dreaming_when_logged_out(root, cfg, stub, monkeypatch):
     write_transcript(cfg, prompts=["q"])
     monkeypatch.setenv("STUB_STATUS_LOGGED_OUT", "1")
