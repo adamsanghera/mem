@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from .. import corpus
-from . import config, launchd, plan, run, skills, state
+from . import config, launchd, plan, prune, run, skills, state
 
 
 def _root() -> Path:
@@ -123,6 +123,19 @@ def cmd_consolidate(args) -> None:
     run.consolidate_now(r, config.load(r), force=args.force)
 
 
+def cmd_prune(args) -> None:
+    r = _root()
+    found = prune.nominations(r, config.load(r))
+    if args.json:
+        print(json.dumps([vars(n) for n in found], indent=2))
+        return
+    for n in found:
+        print(f"{n.filename}  [{n.evidence()}]")
+    by_volatility = Counter(n.volatility for n in found)
+    split = ", ".join(f"{count} {name}" for name, count in sorted(by_volatility.items()))
+    print(f"{len(found)} nominated" + (f" ({split})" if found else ""))
+
+
 def cmd_log(args) -> None:
     for e in state.load_log(_root())[-args.n :]:
         usage = e.get("usage") or {}
@@ -189,6 +202,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     p = dsub.add_parser("consolidate", help="the consolidation step alone")
     p.add_argument("--force", action="store_true", help="ignore the size and budget caps")
     p.set_defaults(fn=cmd_consolidate)
+
+    p = dsub.add_parser("prune", help="unused pages a prune would judge")
+    p.add_argument("--plan", action="store_true", required=True, help="list nominations; spends no tokens")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_prune)
 
     p = dsub.add_parser("log", help="recent dreams and consolidations")
     p.add_argument("-n", type=int, default=20)

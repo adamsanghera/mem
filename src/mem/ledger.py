@@ -38,10 +38,11 @@ VERDICTS = {
 WEAK_BEST_DISTANCE = 0.45
 
 # Sessions that maintain the corpus rather than work from it: a dream over
-# one transcript, or a consolidation pass. Their events stay on the ledger,
-# and their verdicts still count toward claim freshness, but their reads and
-# searches are not demand, so heat, bounties, and helpfulness leave them out.
-MAINTENANCE_KINDS = frozenset({"dream", "consolidate"})
+# one transcript, a consolidation pass, or a prune of unused pages. Their
+# events stay on the ledger, and their verdicts still count toward claim
+# freshness, but their reads and searches are not demand, so heat, bounties,
+# and helpfulness leave them out.
+MAINTENANCE_KINDS = frozenset({"dream", "consolidate", "prune"})
 
 
 def ledger_path(r: Path) -> Path:

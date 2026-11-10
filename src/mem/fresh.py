@@ -142,7 +142,7 @@ class Freshness:
         return " · ".join(parts)
 
 
-def _to_date(value) -> date | None:
+def to_date(value) -> date | None:
     if not value:
         return None
     try:
@@ -173,10 +173,10 @@ def freshness(
     if result.claims:
         return result
 
-    last = _to_date(fm.get("updated")) or _to_date(fm.get("created"))
+    last = to_date(fm.get("updated")) or to_date(fm.get("created"))
     for e in page_events:
         if e.get("event") == "feedback" and e.get("verdict") in CONFIRMING_VERDICTS:
-            when = _to_date(e.get("ts"))
+            when = to_date(e.get("ts"))
             if when and (last is None or when > last):
                 last = when
     if last is not None:
@@ -230,7 +230,7 @@ def stale(r: Path, window_days: int = 30) -> list[dict]:
         if ledger.is_maintenance(e):
             continue
         if e.get("event") in ("read", "search_hit") and e.get("filename"):
-            when = _to_date(e.get("ts"))
+            when = to_date(e.get("ts"))
             if when and when.toordinal() >= cutoff:
                 heat[e["filename"]] += 1
 

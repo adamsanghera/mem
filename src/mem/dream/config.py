@@ -44,6 +44,11 @@ DEFAULTS: dict = {
     "consolidate_base_tokens": 60000,
     "max_input_tokens_per_consolidation": 250000,
     "consolidate_timeout_minutes": 30,
+    # a page is nominated for pruning once it is this old and no working
+    # session has read it for this long
+    "prune_cold_days": 30,
+    # how long a prune's judgment of a page stands before it is asked again
+    "prune_review_days": 90,
     "agent_cmd": "agent",
     # false runs dreams with the agent's full access: any file, any host,
     # any command, and small skill edits commit without review (see

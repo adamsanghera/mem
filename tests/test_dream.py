@@ -7,12 +7,14 @@ import subprocess
 import sys
 import textwrap
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from mem import corpus, embed, ledger, skillcards
-from mem.dream import config, launchd, plan, run, skills, state, transcripts
+from mem.dream import config, launchd, plan, prune, run, skills, state, transcripts
 
 SESSION = "11111111-1111-4111-8111-111111111111"
 HOUR = 3600
@@ -352,6 +354,93 @@ def test_skillcards_sync(root, skill_repo):
     _, skills_root = skill_repo
     assert skillcards.sync(root, skills_root) == (3, 0, 0)
     assert skillcards.sync(root, skills_root) == (0, 3, 0)
+
+
+# ---- prune nominations ----------------------------------------------------
+
+
+def days_ago(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def old_page(root, name, days=60, **frontmatter) -> str:
+    """Write a page created `days` ago and return its filename."""
+    fm = {
+        "title": name,
+        "created": days_ago(days),
+        "uuid": str(uuid.uuid4()),
+        "volatility": "slow",
+        **frontmatter,
+    }
+    (root / f"{name}.md").write_text(corpus.build_page(fm, "the pool has four nodes"))
+    return f"{name}.md"
+
+
+def past_event(root, event, filename, days, **extra):
+    """Append a ledger event dated `days` ago, which ledger.append cannot do."""
+    record = {"ts": days_ago(days), "event": event, "filename": filename, **extra}
+    with ledger.ledger_path(root).open("a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def nominated(root, cfg):
+    return [n.filename for n in prune.nominations(root, cfg)]
+
+
+def test_prune_nominates_an_old_page_nobody_read(root, cfg):
+    cold = old_page(root, "cold")
+    past_event(root, "search_hit", cold, 3)
+    past_event(root, "feedback", cold, 3, verdict="unrelated")
+    [n] = prune.nominations(root, cfg)
+    assert (n.filename, n.volatility, n.age_days, n.surfaced) == (cold, "slow", 60, 1)
+    assert n.verdicts == {"unrelated": 1}
+    assert n.evidence().startswith("slow, 60 days old") and "rated: unrelated=1" in n.evidence()
+
+
+def test_prune_leaves_pages_that_are_new_in_use_or_protected(root, cfg):
+    cold = old_page(root, "cold")
+    old_page(root, "new", days=10)
+    past_event(root, "read", old_page(root, "read"), 5)
+    for verdict in ("solved", "partial", "context"):
+        past_event(root, "feedback", old_page(root, f"rated-{verdict}"), 50, verdict=verdict)
+    past_event(root, "prune", old_page(root, "judged"), 10, kind="prune", outcome="kept")
+    old_page(root, "decision", volatility="stable")
+    old_page(root, "standing", tags=["prime"])
+    old_page(root, "card", tags=["skill-card"])
+    fixture = old_page(root, "fixture")
+    (root / "meta" / "evals.yaml").write_text(f"- query: pool size\n  expect: {fixture}\n")
+    (root / "undated.md").write_text("---\ntitle: Undated\n---\n\nno created date\n")
+    assert nominated(root, cfg) == [cold]
+
+
+def test_prune_windows_end_one_day_past_their_length(root, cfg):
+    assert cfg["prune_cold_days"] == 30 and cfg["prune_review_days"] == 90
+    old_page(root, "aged-30", days=30)
+    aged = old_page(root, "aged-31", days=31)
+    past_event(root, "read", old_page(root, "read-30"), 30)
+    read = old_page(root, "read-31")
+    past_event(root, "read", read, 31)
+    past_event(root, "prune", old_page(root, "judged-90", days=200), 90, kind="prune", outcome="kept")
+    judged = old_page(root, "judged-91", days=200)
+    past_event(root, "prune", judged, 91, kind="prune", outcome="kept")
+    assert sorted(nominated(root, cfg)) == sorted([aged, read, judged])
+
+
+def test_a_maintenance_read_does_not_keep_a_page_from_pruning(root, cfg):
+    cold = old_page(root, "cold")
+    for kind in ("dream", "consolidate", "prune"):
+        past_event(root, "read", cold, 1, kind=kind)
+        past_event(root, "feedback", cold, 1, kind=kind, verdict="solved")
+    assert all(ledger.is_maintenance(e) for e in ledger.load(root))
+    assert nominated(root, cfg) == [cold]
+
+
+def test_prune_takes_fast_pages_first_then_the_oldest(root, cfg):
+    slow_old = old_page(root, "slow-old", days=90)
+    fast_young = old_page(root, "fast-young", days=40, volatility="fast")
+    fast_old = old_page(root, "fast-old", days=80, volatility="fast")
+    slow_young = old_page(root, "slow-young", days=40)
+    assert nominated(root, cfg) == [fast_old, fast_young, slow_old, slow_young]
 
 
 # ---- runner ---------------------------------------------------------------
