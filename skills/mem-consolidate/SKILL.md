@@ -11,11 +11,12 @@ description: >-
 
 # mem-consolidate
 
-The consolidator edits the corpus deliberately. Agents write pages liberally
-during their work, and dreams reflect on each session afterwards. This pass
-makes the corpus as a whole trustworthy: corrections, splits, cross-links,
-and merges across sessions. It and the dream runner own the corpus's git
-commits, so ordinary agents never need to.
+The consolidator edits the corpus deliberately. Agents write pages during
+their work, and dreams reflect on each session afterwards. This pass makes
+the corpus as a whole trustworthy: corrections, splits, cross-links, and
+merges across sessions. Pages nobody reads are not its job: `mem dream
+prune` judges those. It and the dream runner own the corpus's git commits,
+so ordinary agents never need to.
 
 Two ways to run it:
 

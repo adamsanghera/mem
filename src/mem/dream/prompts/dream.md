@@ -10,9 +10,9 @@ The memory corpus is at $mem_root. Work it with the `mem` CLI, which already poi
 
 ## What belongs in memory
 
-Memory exists to save a later session labor: with the page, it goes from a question to its answer and skips the tool calls this session needed. The digest shows where that labor went. A run of tool calls between a question and its answer is an investigation, and its conclusion is a candidate page. So is an answer that surprised the agent or the user, because a later session would guess wrong. Keep a candidate only if a later session is likely to ask again. A page states the answer, how the session knew it, and any wrong turn that looked right. For a value that changes, it gives the command that fetches it. Leave out what one obvious call would answer: every page is one more thing to keep true.
+$salience
 
-This is knowledge with no single home in code: incidents and their root causes, decisions and the reasons for them, quirks of tools and vendors, the shape of systems that span repos, and the preferences of the people the agent works with. A correction from the user belongs here whatever it cost to learn. A fact that belongs to one module belongs in that module's code or docs, not here.
+The digest shows where this session's labor went. A run of tool calls between a question and its answer is an investigation, and its conclusion is a candidate page. So is an answer that surprised the agent or the user.
 
 ## How to work
 

@@ -1,10 +1,10 @@
 """What the scheduler remembers between runs, all under meta/dreams/.
 
-- registry.jsonl: every session the scheduler created (dreams and
-  consolidations). These are never dreamed about.
+- registry.jsonl: every session the scheduler created (dreams,
+  consolidations, and prunes). These are never dreamed about.
 - watermarks/<subject>.json: how far into a transcript dreams have read.
-- log.jsonl: one line per dream, consolidation, and budget deferral, with
-  the usage each run reported. Budgets are computed from it.
+- log.jsonl: one line per dream, consolidation, prune, and budget deferral,
+  with the usage each run reported. Budgets are computed from it.
 - consolidated.json: the corpus commit the last consolidation covered.
 """
 

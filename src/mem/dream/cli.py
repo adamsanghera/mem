@@ -57,7 +57,7 @@ def cmd_config(args) -> None:
 def cmd_status(args) -> None:
     r = _root()
     cfg = config.load(r)
-    runs = [e for e in state.load_log(r) if e.get("event") in ("dream", "consolidate")]
+    runs = [e for e in state.load_log(r) if e.get("event") in ("dream", "consolidate", "prune")]
     verdicts = Counter(c.verdict for c in plan.plan(r, cfg))
     open_proposals = sum(1 for _, fm, _ in skills.load_proposals(r) if fm.get("status") == "open")
     rows = {
@@ -71,6 +71,8 @@ def cmd_status(args) -> None:
         "ready to dream": verdicts.get("dream", 0),
         "waiting": sum(n for v, n in verdicts.items() if v.startswith("wait:")),
         "open proposals": open_proposals,
+        "prune": "scheduled" if cfg["prune"] else "by hand only",
+        "prune queue": len(prune.nominations(r, cfg)),
     }
     for key, value in rows.items():
         print(f"{key:>16}: {value}")
@@ -125,7 +127,11 @@ def cmd_consolidate(args) -> None:
 
 def cmd_prune(args) -> None:
     r = _root()
-    found = prune.nominations(r, config.load(r))
+    cfg = config.load(r)
+    if not args.plan:
+        run.prune_now(r, cfg, force=args.force)
+        return
+    found = prune.nominations(r, cfg)
     if args.json:
         print(json.dumps([vars(n) for n in found], indent=2))
         return
@@ -133,7 +139,23 @@ def cmd_prune(args) -> None:
         print(f"{n.filename}  [{n.evidence()}]")
     by_volatility = Counter(n.volatility for n in found)
     split = ", ".join(f"{count} {name}" for name, count in sorted(by_volatility.items()))
-    print(f"{len(found)} nominated" + (f" ({split})" if found else ""))
+    print(
+        f"{len(found)} nominated"
+        + (f" ({split})" if found else "")
+        + f"; a run judges {cfg['prune_batch_pages']}"
+    )
+
+
+def _prune_counts(e: dict) -> str:
+    """`kept 12, edited 5, deleted 3: ` for a prune that ran, else nothing."""
+    if e.get("event") != "prune" or "kept" not in e:
+        return ""
+    parts = [f"kept {e['kept']}", f"edited {e['edited']}", f"deleted {len(e['deleted'])}"]
+    if e.get("restored"):
+        parts.append(f"restored {len(e['restored'])}")
+    if e.get("dangling_links"):
+        parts.append(f"dangling links {e['dangling_links']}")
+    return ", ".join(parts) + ": "
 
 
 def cmd_log(args) -> None:
@@ -142,7 +164,7 @@ def cmd_log(args) -> None:
         tokens = int(usage.get("inputTokens") or 0) + int(usage.get("outputTokens") or 0)
         who = e.get("subject_session") or e.get("session") or ""
         commit = (e.get("commit") or "")[:10]
-        detail = e.get("summary") or e.get("reason") or e.get("error") or ""
+        detail = _prune_counts(e) + (e.get("summary") or e.get("reason") or e.get("error") or "")
         print(f"{e['ts']}  {e['event']:<11} {e.get('status', ''):<8} {tokens:>7}t  {commit:<10} {who}  {detail}")
 
 
@@ -203,12 +225,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--force", action="store_true", help="ignore the size and budget caps")
     p.set_defaults(fn=cmd_consolidate)
 
-    p = dsub.add_parser("prune", help="unused pages a prune would judge")
-    p.add_argument("--plan", action="store_true", required=True, help="list nominations; spends no tokens")
-    p.add_argument("--json", action="store_true")
+    p = dsub.add_parser("prune", help="keep, tighten, or delete one batch of unused pages")
+    p.add_argument("--plan", action="store_true", help="list the nominated pages; spends no tokens")
+    p.add_argument("--json", action="store_true", help="with --plan")
+    p.add_argument("--force", action="store_true", help="ignore the token budgets")
     p.set_defaults(fn=cmd_prune)
 
-    p = dsub.add_parser("log", help="recent dreams and consolidations")
+    p = dsub.add_parser("log", help="recent dreams, consolidations, and prunes")
     p.add_argument("-n", type=int, default=20)
     p.set_defaults(fn=cmd_log)
 

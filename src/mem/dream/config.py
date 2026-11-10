@@ -44,6 +44,10 @@ DEFAULTS: dict = {
     "consolidate_base_tokens": 60000,
     "max_input_tokens_per_consolidation": 250000,
     "consolidate_timeout_minutes": 30,
+    # whether a scheduled run ends with one prune batch; `mem dream prune`
+    # by hand works either way
+    "prune": False,
+    "prune_batch_pages": 20,
     # a page is nominated for pruning once it is this old and no working
     # session has read it for this long
     "prune_cold_days": 30,

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from mem import corpus, embed, ledger, skillcards
+from mem.dream import cli as dream_cli
 from mem.dream import config, launchd, plan, prune, run, skills, state, transcripts
 
 SESSION = "11111111-1111-4111-8111-111111111111"
@@ -471,6 +472,15 @@ STUB = textwrap.dedent(
         requests = Path.cwd() / "context-requests"
         requests.mkdir(exist_ok=True)
         (requests / "warmup-runbook.md").write_text("Read the warmup runbook\\n\\nIt lives in the ops wiki.\\n")
+    if os.environ.get("MEM_SESSION_KIND") == "prune":
+        acts = json.loads(os.environ.get("STUB_PRUNE", "{}"))
+        for name in acts.get("delete", []):
+            (root / name).unlink()
+        for name in acts.get("edit", []):
+            with (root / name).open("a") as f:
+                f.write("tightened\\n")
+        for name in acts.get("add", []):
+            (root / name).write_text("---\\ntitle: Added\\n---\\n\\nwritten by a working session\\n")
     if os.environ.get("STUB_SLEEP"):
         time.sleep(float(os.environ["STUB_SLEEP"]))
     if os.environ.get("MEM_SESSION_KIND") == "dream":
@@ -510,6 +520,7 @@ def test_run_dreams_commits_and_consolidates(root, cfg, stub):
     calls = [json.loads(line) for line in stub.read_text().splitlines()]
     assert [(c["kind"], c["from"]) for c in calls] == [("dream", SESSION), ("consolidate", None)]
     assert transcripts.DREAM_MARKER in calls[0]["prompt"]
+    assert SALIENCE in calls[0]["prompt"]
     assert f"new gamma ({waiting.stem}): Gamma keeps coming up." in calls[0]["prompt"]
     assert "cache-warmup.md" in calls[1]["prompt"]
     assert "--workspace" in calls[0]["argv"]
@@ -563,6 +574,98 @@ def test_run_kills_a_dream_at_its_timeout(root, cfg, stub, monkeypatch):
     assert time.monotonic() - started < 20
     assert dream["status"] == "timeout"
     assert dream["usage"]["estimated"] and dream["usage"]["inputTokens"] == dream["estimate"]
+
+
+# ---- prune runs -----------------------------------------------------------
+
+SALIENCE = "Memory exists to save a later session labor"
+
+
+def prune_events(root):
+    return {(e["filename"], e["outcome"]) for e in ledger.load(root) if e["event"] == "prune"}
+
+
+def test_prune_commits_once_and_records_each_outcome(root, cfg, stub, monkeypatch):
+    gone, tight, fine = old_page(root, "gone"), old_page(root, "tight"), old_page(root, "fine")
+    (root / "referrer.md").write_text(f"---\ntitle: Referrer\n---\n\nSee also: {gone}\n")
+    monkeypatch.setenv("STUB_PRUNE", json.dumps({"delete": [gone], "edit": [tight]}))
+    record = run.prune(root, cfg)
+
+    assert record["status"] == "ok" and record["batch"] == 3
+    assert (record["kept"], record["edited"], record["deleted"]) == (1, 1, [gone])
+    assert record["restored"] == [] and record["dangling_links"] == 1
+    assert dream_cli._prune_counts(record) == "kept 1, edited 1, deleted 1, dangling links 1: "
+    assert git(root, "log", "--format=%s").splitlines()[0].startswith("prune ")
+    assert git(root, "rev-list", "--count", "HEAD").strip() == "2"  # init, then one prune commit
+    assert git(root, "status", "--porcelain") == ""
+    assert not (root / gone).exists() and (root / tight).read_text().endswith("tightened\n")
+
+    assert prune_events(root) == {(gone, "deleted"), (tight, "edited"), (fine, "kept")}
+    events = [e for e in ledger.load(root) if e["event"] == "prune"]
+    assert {e["session"] for e in events} == {record["session"]}
+    assert all(ledger.is_maintenance(e) for e in events)
+    assert nominated(root, cfg) == []  # judged pages are not asked about again
+
+    [call] = [json.loads(line) for line in stub.read_text().splitlines()]
+    assert call["kind"] == "prune" and call["session"] in state.registered_sessions(root)
+    assert argv_values(call["argv"], "--add-dir") == [str(root)]  # no skill folders
+    assert transcripts.DREAM_MARKER in call["prompt"] and SALIENCE in call["prompt"]
+    assert all(f"- {name} (slow, 60 days old" in call["prompt"] for name in (gone, tight, fine))
+    assert "skill folders" not in call["prompt"]
+
+
+def test_prune_puts_back_a_page_deleted_outside_the_batch(root, cfg, stub, monkeypatch):
+    cold = old_page(root, "cold")
+    decision = old_page(root, "decision", volatility="stable")
+    kept_bytes = (root / decision).read_bytes()
+    monkeypatch.setenv("STUB_PRUNE", json.dumps({"delete": [cold, decision], "add": ["fresh.md"]}))
+    record = run.prune(root, cfg)
+
+    assert record["deleted"] == [cold] and record["restored"] == [decision]
+    assert (root / decision).read_bytes() == kept_bytes
+    assert (root / "fresh.md").exists()  # a working session may have written it mid-run
+    assert prune_events(root) == {(cold, "deleted")}
+    assert git(root, "status", "--porcelain") == ""
+
+
+def test_a_prune_that_stops_early_leaves_untouched_pages_unjudged(root, cfg, stub, monkeypatch):
+    tight, unseen = old_page(root, "tight"), old_page(root, "unseen")
+    monkeypatch.setenv("STUB_PRUNE", json.dumps({"edit": [tight]}))
+    monkeypatch.setenv("STUB_SLEEP", "30")
+    cfg["consolidate_timeout_minutes"] = 0.02
+    record = run.prune(root, cfg)
+
+    assert record["status"] == "timeout" and record["commit"]
+    assert prune_events(root) == {(tight, "edited")}
+    assert nominated(root, cfg) == [unseen]
+
+
+def test_prune_skips_or_defers_before_spending_anything(root, cfg, stub):
+    assert run.prune(root, cfg)["reason"] == "nothing nominated"
+    old_page(root, "cold")
+    state.log(root, {"event": "dream", "usage": {"inputTokens": cfg["daily_token_budget"]}})
+    assert run.prune(root, cfg)["status"] == "deferred"
+    assert not stub.exists()
+    assert run.prune(root, cfg, force=True)["status"] == "ok"
+
+
+def test_prune_refuses_a_corpus_it_could_not_undo_in(root, cfg):
+    old_page(root, "cold")
+    record = run.prune(root, cfg)
+    assert record["status"] == "skip" and "not a git repository" in record["reason"]
+
+
+def test_a_scheduled_run_prunes_only_when_switched_on(root, cfg, stub):
+    cold = old_page(root, "cold")
+    assert cfg["prune"] is False
+    assert run.run(root, cfg, out=lambda *_: None) == []
+    assert not stub.exists()
+
+    cfg.update(prune=True, prune_batch_pages=1)
+    old_page(root, "colder", days=90)
+    [record] = run.run(root, cfg, out=lambda *_: None)
+    assert record["event"] == "prune" and record["batch"] == 1 and record["kept"] == 1
+    assert nominated(root, cfg) == [cold]  # the older page went first
 
 
 # ---- sandbox --------------------------------------------------------------

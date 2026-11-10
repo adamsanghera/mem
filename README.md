@@ -219,6 +219,31 @@ Other controls: `mem dream status`, `pause`, `resume`, `log`,
 rest. Dream sessions set `MEM_SESSION_KIND`, so their reads and searches
 never count as heat or demand.
 
+## Pruning
+
+Dreams and consolidation add and repair. Neither looks at a page nobody
+reads, and that page's claims still come due for checking. A prune judges
+those pages:
+
+```bash
+mem dream prune --plan            # the nominated pages; spends no tokens
+mem dream prune                   # judge one batch now
+mem dream config set prune true   # one batch at the end of each scheduled run
+```
+
+A page is nominated once it is 30 days old, no working session has read it
+in 30 days, and none ever rated it solved, partial, or context. Stable
+pages, `prime` pages, skill cards, and the pages retrieval fixtures expect
+are never nominated. Disuse only nominates. The prune asks what a session asks before
+writing a page, whether it would save a later session the investigation,
+and keeps the page, tightens it to the answer, or deletes it.
+
+Each prune is one commit, and its digest (`meta/prune-<date>.md`) gives the
+reason for every page. `git revert <commit>` and `mem reindex` bring back
+what it removed. The runner puts back any page deleted outside the batch,
+and a judged page is not nominated again for 90 days. A deleted page that
+someone later wants shows up in `mem bounties`, as a weak search or a miss.
+
 ## Browsing
 
 ```bash
