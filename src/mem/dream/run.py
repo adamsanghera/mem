@@ -413,13 +413,11 @@ def consolidate(r: Path, cfg: dict, since_commit: str | None, force: bool = Fals
         record = {"event": "consolidate", "status": "skip", "reason": "nothing changed"}
         state.log(r, record)
         return record
-    estimate = (
-        cfg["overhead_tokens"]
-        + cfg["consolidate_base_tokens"]
-        + sum((r / name).stat().st_size for name in scope) // 4
-    )
+    given = cfg["consolidate_base_tokens"] + sum((r / name).stat().st_size for name in scope) // 4
+    estimate = state.estimate(cfg, given)
+    too_large = cfg["overhead_tokens"] + given > cfg["max_input_tokens_per_consolidation"]
     over_budget = state.over_budget(cfg, estimate, state.tokens_spent(r, 24), state.tokens_spent(r, 24 * 7))
-    if not force and (estimate > cfg["max_input_tokens_per_consolidation"] or over_budget):
+    if not force and (too_large or over_budget):
         record = {"event": "consolidate", "status": "deferred", "estimate": estimate, "scope": len(scope)}
         state.log(r, record)
         return record
@@ -590,9 +588,7 @@ def prune(r: Path, cfg: dict, force: bool = False) -> dict:
     batch = [n for n in nominations(r, cfg) if n.filename in before][: cfg["prune_batch_pages"]]
     if not batch:
         return skipped("skip", reason="nothing nominated")
-    estimate = (
-        cfg["overhead_tokens"] + cfg["consolidate_base_tokens"] + sum(n.size for n in batch) // 4
-    )
+    estimate = state.estimate(cfg, cfg["consolidate_base_tokens"] + sum(n.size for n in batch) // 4)
     if not force and state.over_budget(
         cfg, estimate, state.tokens_spent(r, 24), state.tokens_spent(r, 24 * 7)
     ):

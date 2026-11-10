@@ -211,6 +211,20 @@ def test_plan_defers_over_budget(root, cfg):
     assert verdicts(root, cfg)[SESSION].verdict == "dream"
 
 
+def test_budgets_count_every_token_a_run_reports(root, cfg):
+    usage = {"inputTokens": 62, "outputTokens": 28078, "cacheReadTokens": 2580716, "cacheWriteTokens": 119105}
+    assert state.usage_tokens(usage) == 2727961
+    assert state.usage_tokens({"inputTokens": 5}) == 5 and state.usage_tokens(None) == 0
+    state.log(root, {"event": "prune", "usage": usage})
+    state.log(root, {"event": "dream", "usage": {"inputTokens": 1200, "outputTokens": 80}})
+    assert state.tokens_spent(root, 24) == 2727961 + 1280
+    # an estimate is in the same unit, so one run's estimate can be weighed against the budget
+    assert state.estimate(cfg, 1000) == (cfg["overhead_tokens"] + 1000) * cfg["reread_factor"]
+    assert state.over_budget(cfg, state.estimate(cfg, 1000), state.tokens_spent(root, 24), 0) is False
+    cfg["daily_token_budget"] = 2727961 + 1280 + state.estimate(cfg, 1000) - 1
+    assert state.over_budget(cfg, state.estimate(cfg, 1000), state.tokens_spent(root, 24), 0) is True
+
+
 def test_try_lock_is_exclusive(root):
     with state.try_lock(root, "corpus") as first:
         with state.try_lock(root, "corpus") as second:

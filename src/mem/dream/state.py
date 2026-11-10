@@ -88,14 +88,27 @@ def load_log(r: Path, hours: float | None = None) -> list[dict]:
     return [e for e in events if e.get("ts", "") >= cutoff]
 
 
+USAGE_KEYS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens")
+
+
+def usage_tokens(usage: dict | None) -> int:
+    """Every token a run reported: input, output, and cache reads and writes.
+    Counting input and output alone made the meter lie about which run did
+    more work: a model that reads its context from cache reports almost no
+    input, however many times it re-read it."""
+    return sum(int((usage or {}).get(key) or 0) for key in USAGE_KEYS)
+
+
+def estimate(cfg: dict, given_tokens: int) -> int:
+    """Tokens a run will process when handed `given_tokens` of prompt,
+    digest, and pages, in the unit usage_tokens counts."""
+    return (cfg["overhead_tokens"] + given_tokens) * cfg["reread_factor"]
+
+
 def tokens_spent(r: Path, hours: float) -> int:
-    """Input plus output tokens reported by runs in the window. A run killed
-    at its timeout reports nothing, so the runner logs its estimate instead."""
-    total = 0
-    for e in load_log(r, hours):
-        usage = e.get("usage") or {}
-        total += int(usage.get("inputTokens") or 0) + int(usage.get("outputTokens") or 0)
-    return total
+    """Tokens reported by runs in the window. A run killed at its timeout
+    reports nothing, so the runner logs its estimate instead."""
+    return sum(usage_tokens(e.get("usage")) for e in load_log(r, hours))
 
 
 def over_budget(cfg: dict, estimate: int, spent_day: int, spent_week: int) -> bool:

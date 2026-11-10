@@ -164,8 +164,7 @@ def _prune_counts(e: dict) -> str:
 
 def cmd_log(args) -> None:
     for e in state.load_log(_root())[-args.n :]:
-        usage = e.get("usage") or {}
-        tokens = int(usage.get("inputTokens") or 0) + int(usage.get("outputTokens") or 0)
+        tokens = state.usage_tokens(e.get("usage"))
         who = e.get("subject_session") or e.get("session") or ""
         commit = (e.get("commit") or "")[:10]
         detail = _prune_counts(e) + (e.get("summary") or e.get("reason") or e.get("error") or "")

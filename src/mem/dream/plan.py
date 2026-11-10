@@ -148,7 +148,7 @@ def evaluate(
         prompts_total=total,
         prune=prune,
         touched=touched,
-        estimate=overhead + len(dg.text) // 4 + pages_tokens,
+        estimate=state.estimate(cfg, len(dg.text) // 4 + pages_tokens),
         digest=dg,
         start_offset=mark.offset,
     )

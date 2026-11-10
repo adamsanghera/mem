@@ -189,7 +189,8 @@ worked on, and sessions with too little new material, unless the session's
 own ledger events say a page it used was outdated. The agent CLI cannot cap a
 run's tokens, so cost is bounded from outside: each run is estimated before it
 starts and checked against daily and weekly budgets, a timeout kills
-runaways, and the usage each run reports is charged afterwards.
+runaways, and the usage each run reports is charged afterwards. A budget
+counts every token a run reports, cache reads and writes included.
 
 Dreams and consolidations edit skills in place, and the runner restores
 each change and holds it as a proposal. With the sandbox off (below), a

@@ -28,10 +28,15 @@ DEFAULTS: dict = {
     # a run re-sends its context on every tool call, so the input it reports
     # runs well past the size of what it was given
     "overhead_tokens": 40000,
+    # each of those re-sends is read back from the provider's cache, so the
+    # tokens a run processes are a multiple of what it was handed plus the
+    # overhead; 10 is the median over a month of dreams and consolidations
+    "reread_factor": 10,
     "max_input_tokens_per_dream": 150000,
+    # counted in every token a run reports, cache reads and writes included;
     # null for no budget
-    "daily_token_budget": 1000000,
-    "weekly_token_budget": 4000000,
+    "daily_token_budget": 10000000,
+    "weekly_token_budget": 40000000,
     # high enough that a daily run reaches the day's sessions before they age
     # out; the token budgets stop a run sooner
     "max_dreams_per_run": 8,
