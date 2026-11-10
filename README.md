@@ -229,6 +229,7 @@ those pages:
 mem dream prune --plan            # the nominated pages; spends no tokens
 mem dream prune                   # judge one batch now
 mem dream config set prune true   # one batch at the end of each scheduled run
+mem dream config set prune_model <model>   # a prune deletes; give it your best model
 ```
 
 A page is nominated once it is 30 days old, no working session has read it

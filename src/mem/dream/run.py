@@ -103,10 +103,13 @@ def run_agent(
     readable: list[Path],
     env: dict[str, str],
     timeout_s: float,
+    model: str | None = None,
 ) -> AgentResult:
     """Run one headless agent turn in `workspace`. It may write `writable`
-    and only read `readable`, unless the config turns the sandbox off."""
+    and only read `readable`, unless the config turns the sandbox off.
+    `model` overrides the configured one for this run."""
     launch = sandbox.prepare(cfg, workspace, writable=writable, readable=readable)
+    model = model or cfg.get("model")
     cmd = [
         *_agent_cmd(cfg),
         "--resume", session,
@@ -114,8 +117,8 @@ def run_agent(
         "--trust", *launch.flags,
         "--workspace", str(workspace),
     ]
-    if cfg.get("model"):
-        cmd += ["--model", str(cfg["model"])]
+    if model:
+        cmd += ["--model", str(model)]
     for d in launch.add_dirs:
         cmd += ["--add-dir", str(d)]
     cmd.append(prompt)
@@ -595,6 +598,7 @@ def prune(r: Path, cfg: dict, force: bool = False) -> dict:
     ):
         return skipped("deferred", estimate=estimate, batch=len(batch))
 
+    model = cfg["prune_model"] or cfg["model"]
     workspace = plan.workspace_dir(r)
     session = create_chat(cfg, workspace)
     state.register(r, "prune", session)
@@ -617,8 +621,15 @@ def prune(r: Path, cfg: dict, force: bool = False) -> dict:
         readable=[],
         env={"MEM_ROOT": str(r), "MEM_SESSION": session, "MEM_SESSION_KIND": "prune"},
         timeout_s=cfg["consolidate_timeout_minutes"] * 60,
+        model=model,
     )
-    record = {"event": "prune", "batch": len(batch), "estimate": estimate, **_record(result, estimate, cfg)}
+    record = {
+        "event": "prune",
+        "batch": len(batch),
+        "model": model,
+        "estimate": estimate,
+        **_record(result, estimate, cfg),
+    }
     if result.did_nothing:
         state.log(r, record)
         return record

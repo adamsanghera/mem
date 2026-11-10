@@ -703,6 +703,17 @@ def test_a_prune_that_stops_early_leaves_untouched_pages_unjudged(root, cfg, stu
     assert nominated(root, cfg) == [unseen]
 
 
+def test_prune_uses_its_own_model_when_one_is_set(root, cfg, stub):
+    cfg.update(model="dream-model", prune_batch_pages=1)
+    old_page(root, "first", days=90)
+    old_page(root, "second")
+    assert run.prune(root, cfg)["model"] == "dream-model"
+    cfg["prune_model"] = "prune-model"
+    assert run.prune(root, cfg)["model"] == "prune-model"
+    calls = [json.loads(line) for line in stub.read_text().splitlines()]
+    assert [argv_values(c["argv"], "--model") for c in calls] == [["dream-model"], ["prune-model"]]
+
+
 def test_prune_skips_or_defers_before_spending_anything(root, cfg, stub):
     assert run.prune(root, cfg)["reason"] == "nothing nominated"
     old_page(root, "cold")

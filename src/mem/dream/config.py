@@ -47,6 +47,9 @@ DEFAULTS: dict = {
     # whether a scheduled run ends with one prune batch; `mem dream prune`
     # by hand works either way
     "prune": False,
+    # a prune deletes pages, so it can be given a stronger model than
+    # dreams get; null uses `model`
+    "prune_model": None,
     "prune_batch_pages": 20,
     # a page is nominated for pruning once it is this old and no working
     # session has read it for this long
