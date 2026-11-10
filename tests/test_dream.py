@@ -364,7 +364,7 @@ def days_ago(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def old_page(root, name, days=60, **frontmatter) -> str:
+def old_page(root, name, days=60, body="the pool has four nodes", **frontmatter) -> str:
     """Write a page created `days` ago and return its filename."""
     fm = {
         "title": name,
@@ -373,7 +373,7 @@ def old_page(root, name, days=60, **frontmatter) -> str:
         "volatility": "slow",
         **frontmatter,
     }
-    (root / f"{name}.md").write_text(corpus.build_page(fm, "the pool has four nodes"))
+    (root / f"{name}.md").write_text(corpus.build_page(fm, body))
     return f"{name}.md"
 
 
@@ -481,6 +481,8 @@ STUB = textwrap.dedent(
                 f.write("tightened\\n")
         for name in acts.get("add", []):
             (root / name).write_text("---\\ntitle: Added\\n---\\n\\nwritten by a working session\\n")
+        for name, text in acts.get("write", {}).items():
+            (root / name).write_text(text)
     if os.environ.get("STUB_SLEEP"):
         time.sleep(float(os.environ["STUB_SLEEP"]))
     if os.environ.get("MEM_SESSION_KIND") == "dream":
@@ -637,6 +639,56 @@ def test_prune_puts_back_a_page_deleted_outside_the_batch(root, cfg, stub, monke
     assert (root / "fresh.md").exists()  # a working session may have written it mid-run
     assert prune_events(root) == {(cold, "deleted")}
     assert git(root, "status", "--porcelain") == ""
+
+
+def test_prune_puts_back_the_identity_of_a_page_it_rewrote(root, cfg, stub, monkeypatch):
+    miscopied, dropped, broken = old_page(root, "miscopied"), old_page(root, "dropped"), old_page(root, "broken")
+    original = {name: (root / name).read_text() for name in (miscopied, dropped, broken)}
+    identity = {
+        name: {key: corpus.parse_frontmatter(text)[0][key] for key in ("uuid", "created")}
+        for name, text in original.items()
+    }
+    uuid_line = f"uuid: {identity[dropped]['uuid']}\n"
+    rewrites = {
+        miscopied: original[miscopied]
+        .replace(identity[miscopied]["uuid"], str(uuid.uuid4()))
+        .replace(identity[miscopied]["created"], days_ago(1))
+        .replace("the pool has four nodes", "four nodes"),
+        dropped: original[dropped].replace(uuid_line, "").replace("the pool has four nodes", "four nodes"),
+        broken: "four nodes, and no frontmatter\n",
+    }
+    assert uuid_line in original[dropped] and all(rewrites[name] != original[name] for name in rewrites)
+    monkeypatch.setenv("STUB_PRUNE", json.dumps({"write": rewrites}))
+    record = run.prune(root, cfg)
+
+    assert sorted(record["identity_repaired"]) == sorted([miscopied, dropped, broken])
+    for name in (miscopied, dropped):
+        fm, body = corpus.parse_frontmatter((root / name).read_text())
+        assert {key: fm[key] for key in ("uuid", "created")} == identity[name]
+        assert body.strip() == "four nodes"  # the rewrite itself stands
+    assert (root / broken).read_text() == original[broken]
+    assert prune_events(root) == {(miscopied, "edited"), (dropped, "edited"), (broken, "kept")}
+    assert "uuid or created repaired 3" in dream_cli._prune_counts(record)
+
+
+def test_prune_reports_the_verified_markers_it_created(root, cfg, stub, monkeypatch):
+    source = old_page(
+        root, "source",
+        body="Four nodes NOTE(verified:pool-count:2026-09-24). Scale-out stalls NOTE(unverified:scaleout).",
+    )
+    owner = old_page(root, "owner", volatility="stable", body="The fleet.")
+    moved = (root / owner).read_text().replace(
+        "The fleet.",
+        "The fleet. Four nodes NOTE(verified:pool-count:2026-09-24). "
+        "Scale-out stalls NOTE(verified:scaleout:2026-09-24).",
+    )
+    monkeypatch.setenv("STUB_PRUNE", json.dumps({"delete": [source], "write": {owner: moved}}))
+    record = run.prune(root, cfg)
+
+    # the claim moved with its marker is fine; the one promoted on the way is reported
+    assert record["new_verified"] == [f"{owner}: NOTE(verified:scaleout:2026-09-24)"]
+    assert record["deleted"] == [source] and record["identity_repaired"] == []
+    assert "new verified markers 1" in dream_cli._prune_counts(record)
 
 
 def test_a_prune_that_stops_early_leaves_untouched_pages_unjudged(root, cfg, stub, monkeypatch):

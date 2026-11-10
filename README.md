@@ -240,9 +240,15 @@ and keeps the page, tightens it to the answer, or deletes it.
 
 Each prune is one commit, and its digest (`meta/prune-<date>.md`) gives the
 reason for every page. `git revert <commit>` and `mem reindex` bring back
-what it removed. The runner puts back any page deleted outside the batch,
-and a judged page is not nominated again for 90 days. A deleted page that
-someone later wants shows up in `mem bounties`, as a weak search or a miss.
+what it removed. A judged page is not nominated again for 90 days. A
+deleted page that someone later wants shows up in `mem bounties`, as a weak
+search or a miss.
+
+The runner checks the agent's work before committing. It puts back any page
+deleted outside the batch, and the `uuid` and `created` date of any page a
+rewrite changed them on. `mem dream log` reports the `verified` markers a
+prune created: a prune checks nothing against a source, so each one is a
+claim it promoted while moving it.
 
 ## Browsing
 

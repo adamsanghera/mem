@@ -28,6 +28,7 @@ When you cannot tell whether a later session would ask again, keep the page. A k
 
 - Judge only the pages in the batch. Edit another page only to repoint a link or to take a fact from a page you delete. Delete nothing outside the batch: the runner puts it back.
 - Add no pages.
+- A claim you keep keeps its marker. When you move a claim to another page, move its marker with it, unchanged. Never write a `verified` marker of your own: you have checked nothing against a source. A claim that had no marker stays unmarked, or becomes `NOTE(unverified:<id>)`.
 - Do not run git or `mem reindex`. The runner reindexes and commits after you finish, as one commit that `git revert` undoes.
 - Do not edit meta/ledger.jsonl, the sqlite index, or meta/evals.yaml. Never store secrets.
 - Write a digest to $digest_file: one line per page in the batch, with its outcome and the reason in a sentence.

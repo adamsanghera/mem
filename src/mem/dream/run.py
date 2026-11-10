@@ -25,7 +25,7 @@ from datetime import datetime
 from importlib import resources
 from pathlib import Path
 
-from .. import corpus, index, ledger, skillcards
+from .. import corpus, fresh, index, ledger, skillcards
 from . import config, plan, sandbox, skills, state, transcripts
 from .prune import nominations
 
@@ -480,6 +480,88 @@ def _restore_strays(r: Path, before: dict[str, bytes], batch: set[str]) -> list[
     return strays
 
 
+IDENTITY_KEYS = ("uuid", "created")
+
+
+def _frontmatter_line(text: str, key: str) -> str | None:
+    """The `key: value` line of a page's frontmatter, or None."""
+    end = text.find("\n---\n", 4)
+    for line in text[4:end].splitlines():
+        if line.startswith(f"{key}:"):
+            return line
+    return None
+
+
+def _with_frontmatter_line(text: str, key: str, line: str) -> str:
+    """`text` with its frontmatter's `key:` line replaced by `line`, or with
+    `line` added first when the frontmatter has none."""
+    end = text.find("\n---\n", 4)
+    lines = text[4:end].splitlines()
+    if any(old.startswith(f"{key}:") for old in lines):
+        lines = [line if old.startswith(f"{key}:") else old for old in lines]
+    else:
+        lines.insert(0, line)
+    return "---\n" + "\n".join(lines) + text[end:]
+
+
+def _restore_identity(r: Path, before: dict[str, bytes]) -> list[str]:
+    """Put back the uuid and created date of every page the run rewrote, and
+    the whole page when its frontmatter no longer parses. Returns the names
+    it repaired. A prune may change what a page says, never which page it
+    is: the ledger and a graduated skill's provenance name pages by uuid,
+    and a rewrite of the frontmatter can miscopy one."""
+    repaired = []
+    for name, old_bytes in before.items():
+        path = r / name
+        if not path.exists() or path.read_bytes() == old_bytes:
+            continue
+        old = old_bytes.decode("utf-8", errors="replace")
+        new = path.read_bytes().decode("utf-8", errors="replace")
+        old_fm, _ = corpus.parse_frontmatter(old)
+        new_fm, _ = corpus.parse_frontmatter(new)
+        if old_fm is None:
+            continue
+        if new_fm is None:
+            path.write_bytes(old_bytes)
+            repaired.append(name)
+            continue
+        changed = [k for k in IDENTITY_KEYS if k in old_fm and str(new_fm.get(k)) != str(old_fm[k])]
+        if not changed:
+            continue
+        old_lines = [_frontmatter_line(old, key) for key in changed]
+        if None in old_lines:
+            # the value parsed but its line was not found, so it cannot be
+            # patched in; the page as it was is the safe one
+            path.write_bytes(old_bytes)
+        else:
+            for key, line in zip(changed, old_lines):
+                new = _with_frontmatter_line(new, key, line)
+            path.write_text(new, encoding="utf-8")
+        repaired.append(name)
+    return repaired
+
+
+def _new_verified_markers(r: Path, before: dict[str, bytes]) -> list[str]:
+    """Verified markers on pages now that no page carried before the run, as
+    `page: marker`. A prune checks nothing against a source, so it has no
+    business minting one. A claim moved with its marker intact keeps the
+    same text and is not listed; a claim promoted on the way is. This only
+    reports: a working session that verified a claim mid-run is listed too,
+    and nothing here can tell the two apart."""
+    known = {
+        m.raw
+        for old in before.values()
+        for m in fresh.parse_markers(old.decode("utf-8", errors="replace"))
+        if m.kind == "verified"
+    }
+    return [
+        f"{page.name}: {m.raw}"
+        for page in corpus.pages(r)
+        for m in fresh.parse_markers(page.read_text(encoding="utf-8", errors="replace"))
+        if m.kind == "verified" and m.raw not in known
+    ]
+
+
 def _dangling_links(r: Path, deleted: list[str]) -> int:
     """How many (page, deleted page) pairs still name a deleted page."""
     if not deleted:
@@ -543,6 +625,7 @@ def prune(r: Path, cfg: dict, force: bool = False) -> dict:
 
     names = [n.filename for n in batch]
     restored = _restore_strays(r, before, set(names))
+    identity_repaired = _restore_identity(r, before)
     outcomes: dict[str, list[str]] = {"kept": [], "edited": [], "deleted": []}
     for name in names:
         page = r / name
@@ -561,6 +644,8 @@ def prune(r: Path, cfg: dict, force: bool = False) -> dict:
         edited=len(outcomes["edited"]),
         deleted=outcomes["deleted"],
         restored=restored,
+        identity_repaired=identity_repaired,
+        new_verified=_new_verified_markers(r, before),
         dangling_links=_dangling_links(r, outcomes["deleted"]),
     )
     record.update(
