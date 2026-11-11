@@ -214,6 +214,20 @@ proposal queue instead. Gather it in an interactive session, then
 `mem dream config set sandbox false` gives dreams full access again, and
 lets them commit small skill fixes.
 
+The executable is `agent_cmd` (default `agent`). `agent_run_args` is its
+argument list. Placeholders, as whole arguments: `{session}`, `{workspace}`,
+`{prompt}`, `{model}`, `{model_args}`, `{add_dirs}`, and `{launch_flags}`.
+`{launch_flags}` is the sandbox (`--sandbox enabled`, or `--force --sandbox
+disabled` when the sandbox is off). `{add_dirs}` repeats
+`agent_add_dir_flag`. An argument list that drops those two runs without
+the sandbox flags; set `sandbox` false as well so the run is not given a
+private Cursor config. `agent_status_args` and `agent_ready_re` are the
+login check; null status args skips it. `agent_create_args` prints a new
+session id; null mints one locally. Stdout is a Cursor `type: result` line,
+a Pi `--mode json` stream (the last assistant message, its `input` and
+`output` counted), or, if the process exits 0 with neither, the last line
+and no token use.
+
 Other controls: `mem dream status`, `pause`, `resume`, `log`,
 `digest <session>`, `run --session <id>`, `consolidate`, and
 `config [get|set] <key> <value>` for the idle time, budgets, model, and the

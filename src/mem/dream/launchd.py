@@ -1,8 +1,8 @@
 """The per-user launchd job that runs `mem dream run` on a schedule.
 
 launchd starts jobs with a bare environment, so the plist pins absolute
-paths: the mem executable, the install-time PATH (where `agent`, `git`, and
-`uv` live), and MEM_ROOT.
+paths: the mem executable, the install-time PATH (where the configured
+agent executable, `git`, and `uv` live), and MEM_ROOT.
 """
 
 import os

@@ -62,6 +62,31 @@ DEFAULTS: dict = {
     # how long a prune's judgment of a page stands before it is asked again
     "prune_review_days": 90,
     "agent_cmd": "agent",
+    # Argument list for one run. Whole-argument placeholders: {session}
+    # {workspace} {prompt} {model} {model_args} {add_dirs} {launch_flags}.
+    # {launch_flags} is the sandbox (`--sandbox enabled`, or `--force
+    # --sandbox disabled` when sandbox is false). A list that omits it does
+    # not pass those flags. Null status args skips the login check. Null
+    # create args makes mem mint a session id.
+    "agent_status_args": ["status"],
+    "agent_ready_re": r"^\W*Logged in as",
+    "agent_create_args": ["create-chat"],
+    "agent_run_args": [
+        "--resume",
+        "{session}",
+        "-p",
+        "--output-format",
+        "json",
+        "--trust",
+        "{launch_flags}",
+        "--workspace",
+        "{workspace}",
+        "{model_args}",
+        "{add_dirs}",
+        "{prompt}",
+    ],
+    "agent_model_flag": "--model",
+    "agent_add_dir_flag": "--add-dir",
     # false runs dreams with the agent's full access: any file, any host,
     # any command, and small skill edits commit without review (see
     # sandbox.py for what true allows)
@@ -95,7 +120,10 @@ def config_path(r: Path) -> Path:
 def load(r: Path) -> dict:
     path = config_path(r)
     stored = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
-    return {**DEFAULTS, **(stored or {})}
+    merged = {**DEFAULTS, **(stored or {})}
+    # list values are shared with DEFAULTS otherwise, and a caller that
+    # appends would change the defaults for the rest of the process
+    return {key: list(value) if isinstance(value, list) else value for key, value in merged.items()}
 
 
 def set_value(r: Path, key: str, raw: str) -> object:

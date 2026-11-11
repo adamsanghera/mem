@@ -20,6 +20,7 @@ import signal
 import string
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from importlib import resources
@@ -51,30 +52,122 @@ class AgentResult:
 
 
 def _agent_cmd(cfg: dict) -> list[str]:
-    return shlex.split(cfg["agent_cmd"])
+    return shlex.split(str(cfg.get("agent_cmd") or "agent"))
+
+
+def _string_list(value, key: str) -> list[str] | None:
+    """A configured argv fragment. None and [] both mean the step is skipped
+    when the caller allows it."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return shlex.split(value)
+    if isinstance(value, list):
+        if not all(isinstance(item, str) for item in value):
+            raise RuntimeError(f"{key} must be a list of strings")
+        return list(value)
+    raise RuntimeError(f"{key} must be a list of strings or null")
+
+
+def _flag(cfg: dict, key: str):
+    value = cfg.get(key, config.DEFAULTS.get(key))
+    if value is None or value is False or value == "":
+        return None
+    return str(value)
+
+
+def agent_argv(
+    cfg: dict,
+    *,
+    session: str,
+    workspace: Path,
+    prompt: str,
+    add_dirs: list[Path],
+    launch_flags: list[str] | None = None,
+    model: str | None = None,
+) -> list[str]:
+    """The full command for one dream, consolidation, or prune. `{prompt}` is
+    its own argument, so the prompt is never parsed by a shell. `{launch_flags}`
+    is filled by the sandbox; a template that omits it does not pass those flags."""
+    tokens = _string_list(cfg.get("agent_run_args", config.DEFAULTS["agent_run_args"]), "agent_run_args") or []
+    if not any("{prompt}" in token for token in tokens):
+        tokens.append("{prompt}")
+    model_flag = _flag(cfg, "agent_model_flag")
+    add_flag = _flag(cfg, "agent_add_dir_flag")
+    values = {
+        "{session}": session,
+        "{workspace}": str(workspace),
+        "{prompt}": prompt,
+        "{model}": "" if not model else str(model),
+    }
+    argv = list(_agent_cmd(cfg))
+    for token in tokens:
+        if token == "{model_args}":
+            if model and model_flag:
+                argv += [model_flag, str(model)]
+            continue
+        if token == "{add_dirs}":
+            if add_flag:
+                for directory in add_dirs:
+                    argv += [add_flag, str(directory)]
+            continue
+        if token == "{launch_flags}":
+            argv += list(launch_flags or [])
+            continue
+        if token in values:
+            if token == "{model}" and not model:
+                continue
+            argv.append(values[token])
+            continue
+        filled = token
+        for key, value in values.items():
+            if key != "{prompt}" and key in filled:
+                filled = filled.replace(key, value)
+        if "{prompt}" in filled:
+            filled = filled.replace("{prompt}", prompt)
+        argv.append(filled)
+    return argv
 
 
 def logged_in(cfg: dict) -> tuple[bool, str]:
+    args = _string_list(cfg.get("agent_status_args", config.DEFAULTS["agent_status_args"]), "agent_status_args")
+    if not args:
+        return True, "no status check configured"
     try:
         out = subprocess.run(
-            [*_agent_cmd(cfg), "status"], capture_output=True, text=True, timeout=60
+            [*_agent_cmd(cfg), *args], capture_output=True, text=True, timeout=60
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
     text = (out.stdout + out.stderr).strip()
-    ok = out.returncode == 0 and re.search(r"^\W*Logged in as", out.stdout, re.M) is not None
+    pattern = cfg.get("agent_ready_re", config.DEFAULTS["agent_ready_re"])
+    if pattern:
+        try:
+            ready = re.search(str(pattern), out.stdout, re.M) is not None
+        except re.error as e:
+            return False, f"agent_ready_re: {e}"
+    else:
+        ready = True
+    ok = out.returncode == 0 and ready
     return ok, text.splitlines()[-1] if text else f"agent status exited {out.returncode}"
 
 
 def create_chat(cfg: dict, cwd: Path) -> str:
     # runs under the user's CLI config, not the sandbox's: with a custom
     # CURSOR_CONFIG_DIR, create-chat prints the id and never exits
-    out = subprocess.run(
-        [*_agent_cmd(cfg), "create-chat"], cwd=cwd, capture_output=True, text=True, timeout=60
-    )
+    args = _string_list(cfg.get("agent_create_args", config.DEFAULTS["agent_create_args"]), "agent_create_args")
+    if not args:
+        return str(uuid.uuid4())
+    try:
+        out = subprocess.run(
+            [*_agent_cmd(cfg), *args], cwd=cwd, capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f"agent session create failed: {e}") from e
     chat = out.stdout.strip().splitlines()[-1].strip() if out.stdout.strip() else ""
     if out.returncode != 0 or not chat:
-        raise RuntimeError(f"agent create-chat failed: {out.stderr.strip()[:300]}")
+        detail = (out.stderr or out.stdout).strip()[:300]
+        raise RuntimeError(f"agent session create failed: {detail}")
     return chat
 
 
@@ -91,6 +184,103 @@ def _summary(text: str) -> str:
         if any(ch.isalnum() for ch in line) and not _TAG_LINE_RE.match(line):
             return line if len(line) <= SUMMARY_LIMIT else line[: SUMMARY_LIMIT - 1] + "…"
     return "no summary"
+
+
+def _count(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _usage_from_message(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    if "inputTokens" in raw or "outputTokens" in raw:
+        return {
+            "inputTokens": _count(raw.get("inputTokens")),
+            "outputTokens": _count(raw.get("outputTokens")),
+        }
+    if "input" in raw or "output" in raw:
+        return {"inputTokens": _count(raw.get("input")), "outputTokens": _count(raw.get("output"))}
+    return {}
+
+
+def _message_text(message: dict) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for part in content:
+        if isinstance(part, str):
+            parts.append(part)
+        elif isinstance(part, dict) and part.get("text"):
+            parts.append(str(part["text"]))
+    return "\n".join(parts).strip()
+
+
+def _last_assistant(messages) -> dict | None:
+    if not isinstance(messages, list):
+        return None
+    for item in reversed(messages):
+        if isinstance(item, dict) and item.get("role") == "assistant":
+            return item
+    return None
+
+
+def interpret_output(stdout: str, stderr: str, returncode: int) -> tuple[str, str, dict, str | None, str]:
+    """Turn a process's output into status, summary, usage, request id, error.
+
+    Cursor's `agent` prints a `type: result` line. Pi's `--mode json` prints
+    a stream of events; the last assistant message is the summary. Anything
+    else that exits 0 contributes its last line and no token counts.
+    """
+    result = None
+    endings: list[dict] = []
+    agent_end = None
+    for line in stdout.splitlines():
+        try:
+            parsed = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        kind = parsed.get("type")
+        if kind == "result":
+            result = parsed
+        elif kind == "message_end" and isinstance(parsed.get("message"), dict):
+            if parsed["message"].get("role") == "assistant":
+                endings.append(parsed["message"])
+        elif kind == "agent_end":
+            agent_end = _last_assistant(parsed.get("messages"))
+    if result is not None:
+        usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+        return (
+            "error" if result.get("is_error") else "ok",
+            _summary(str(result.get("result") or "")),
+            usage,
+            result.get("request_id"),
+            "",
+        )
+    message = next((item for item in reversed(endings) if _message_text(item)), None)
+    if message is None:
+        message = endings[-1] if endings else agent_end
+    if message is not None:
+        text = _message_text(message)
+        usage: dict = {}
+        for item in endings or [message]:
+            part = _usage_from_message(item.get("usage"))
+            usage["inputTokens"] = usage.get("inputTokens", 0) + part.get("inputTokens", 0)
+            usage["outputTokens"] = usage.get("outputTokens", 0) + part.get("outputTokens", 0)
+        if not usage.get("inputTokens") and not usage.get("outputTokens"):
+            usage = {}
+        failed = message.get("stopReason") in ("error", "aborted") or returncode != 0
+        return ("error" if failed else "ok", _summary(text), usage, None, "")
+    if returncode == 0:
+        return "ok", _summary(stdout), {}, None, ""
+    return "error", "", {}, None, (stderr or stdout).strip()[-500:]
 
 
 def run_agent(
@@ -110,18 +300,15 @@ def run_agent(
     `model` overrides the configured one for this run."""
     launch = sandbox.prepare(cfg, workspace, writable=writable, readable=readable)
     model = model or cfg.get("model")
-    cmd = [
-        *_agent_cmd(cfg),
-        "--resume", session,
-        "-p", "--output-format", "json",
-        "--trust", *launch.flags,
-        "--workspace", str(workspace),
-    ]
-    if model:
-        cmd += ["--model", str(model)]
-    for d in launch.add_dirs:
-        cmd += ["--add-dir", str(d)]
-    cmd.append(prompt)
+    cmd = agent_argv(
+        cfg,
+        session=session,
+        workspace=workspace,
+        prompt=prompt,
+        add_dirs=launch.add_dirs,
+        launch_flags=launch.flags,
+        model=model,
+    )
     started = time.monotonic()
     proc = subprocess.Popen(
         cmd,
@@ -145,24 +332,15 @@ def run_agent(
             proc.communicate()
         return AgentResult(session, "timeout", seconds=time.monotonic() - started)
     seconds = time.monotonic() - started
-    result = None
-    for line in reversed(stdout.splitlines()):
-        try:
-            parsed = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(parsed, dict) and parsed.get("type") == "result":
-            result = parsed
-            break
-    if result is None:
-        return AgentResult(session, "error", seconds=seconds, error=(stderr or stdout).strip()[-500:])
+    status, summary, usage, request_id, error = interpret_output(stdout, stderr, proc.returncode or 0)
     return AgentResult(
         session,
-        "error" if result.get("is_error") else "ok",
-        summary=_summary(result.get("result") or ""),
-        usage=result.get("usage") or {},
-        request_id=result.get("request_id"),
+        status,
+        summary=summary,
+        usage=usage,
+        request_id=request_id,
         seconds=seconds,
+        error=error,
     )
 
 

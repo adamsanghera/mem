@@ -32,9 +32,15 @@ next steps:
   3. write the first memory:
        mem add --title "..." --summary "..." --citations "..." --text "..."
   4. mem prime
-  5. optional, macOS: let quiet sessions turn into memories on their own
+  5. optional: dreams run a headless agent over quiet sessions. The default
+     executable is Cursor's `agent`, with its flags. Point both at any CLI
+     (placeholders {{session}} {{workspace}} {{prompt}} {{model_args}} {{add_dirs}} {{launch_flags}}):
+       mem dream config set agent_cmd /path/to/your-agent
+       mem dream config set agent_run_args '["-p", "{{prompt}}"]'
+       mem dream config set agent_status_args null    # no login check
+       mem dream config set agent_create_args null    # mem mints a session id
        mem dream plan       # what would be dreamed about, and why; no tokens
-       mem dream install    # run `mem dream run` once a day
+       mem dream install    # macOS: run `mem dream run` once a day
 """
 
 # union-merge the ledger: concurrent appends from different machines are both

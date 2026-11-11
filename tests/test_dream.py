@@ -852,7 +852,111 @@ def test_schedule_aligns_to_run_at_and_rejects_bad_settings(cfg):
 def test_config_set_keeps_types_and_rejects_unknown_keys(root):
     assert config.set_value(root, "idle_hours", "3.5") == 3.5
     assert config.set_value(root, "skill_roots", "[~/a, ~/b]") == ["~/a", "~/b"]
+    assert config.set_value(root, "agent_status_args", "null") is None
     assert config.load(root)["idle_hours"] == 3.5
+    assert config.load(root)["agent_status_args"] is None
+    loaded = config.load(root)
+    loaded["agent_run_args"].append("--extra")
+    assert "--extra" not in config.DEFAULTS["agent_run_args"]
     with pytest.raises(KeyError):
         config.set_value(root, "nope", "1")
     assert "!config.yaml" in (config.state_dir(root) / ".gitignore").read_text()
+
+
+def test_default_agent_argv_is_the_cursor_cli(cfg):
+    argv = run.agent_argv(
+        cfg,
+        session="s",
+        workspace=Path("/w"),
+        prompt="do the thing",
+        add_dirs=[Path("/a")],
+        launch_flags=["--sandbox", "enabled"],
+    )
+    assert argv[:2] == ["agent", "--resume"]
+    assert argv[argv.index("--workspace") + 1] == "/w"
+    assert argv[argv.index("--sandbox") + 1] == "enabled"
+    assert "--force" not in argv
+    assert argv[argv.index("--add-dir") + 1] == "/a"
+    assert argv[-1] == "do the thing"
+    with_model = run.agent_argv(
+        cfg,
+        session="s",
+        workspace=Path("/w"),
+        prompt="p",
+        add_dirs=[],
+        launch_flags=["--force", "--sandbox", "disabled"],
+        model="gpt",
+    )
+    assert with_model[with_model.index("--model") + 1] == "gpt"
+    assert with_model[with_model.index("--sandbox") + 1] == "disabled"
+
+
+def test_agent_argv_follows_the_configured_executable(cfg):
+    cfg["agent_cmd"] = "pi"
+    cfg["agent_run_args"] = ["-p", "--mode", "json", "--session-id", "{session}", "{prompt}"]
+    cfg["agent_add_dir_flag"] = None
+    argv = run.agent_argv(
+        cfg,
+        session="abc",
+        workspace=Path("/w"),
+        prompt="hello",
+        add_dirs=[Path("/a")],
+        launch_flags=["--sandbox", "enabled"],
+    )
+    assert argv == ["pi", "-p", "--mode", "json", "--session-id", "abc", "hello"]
+
+
+def test_interpret_output_accepts_cursor_pi_and_plain_text():
+    status, summary, usage, request_id, error = run.interpret_output(
+        json.dumps({
+            "type": "result", "is_error": False, "result": "Added a page",
+            "request_id": "req-1", "usage": {"inputTokens": 3, "outputTokens": 1},
+        }),
+        "",
+        0,
+    )
+    assert (status, summary, usage, request_id, error) == (
+        "ok", "Added a page", {"inputTokens": 3, "outputTokens": 1}, "req-1", ""
+    )
+
+    pi = "\n".join([
+        json.dumps({"type": "message_end", "message": {
+            "role": "assistant", "stopReason": "toolUse",
+            "content": [{"type": "text", "text": "looking"}],
+            "usage": {"input": 4, "output": 1},
+        }}),
+        json.dumps({"type": "message_end", "message": {
+            "role": "assistant", "stopReason": "stop",
+            "content": [{"type": "text", "text": "Pi wrote it"}],
+            "usage": {"input": 6, "output": 2},
+        }}),
+    ])
+    status, summary, usage, _, _ = run.interpret_output(pi, "", 0)
+    assert status == "ok" and summary == "Pi wrote it"
+    assert usage == {"inputTokens": 10, "outputTokens": 3}
+
+    status, summary, usage, _, error = run.interpret_output("noise\nplain summary\n", "", 0)
+    assert (status, summary, usage, error) == ("ok", "plain summary", {}, "")
+    status, _, _, _, error = run.interpret_output("", "boom", 1)
+    assert status == "error" and error == "boom"
+
+
+def test_run_uses_a_configured_executable_without_cursor_flags(root, cfg, stub):
+    cfg["sandbox"] = False
+    cfg["agent_status_args"] = None
+    cfg["agent_create_args"] = None
+    cfg["agent_run_args"] = ["--print", "{prompt}"]
+    write_transcript(cfg, prompts=["why does the cache miss on cold start"])
+    records = run.run(root, cfg, out=lambda *_: None)
+    assert records[0]["status"] == "ok"
+    calls = [json.loads(line) for line in stub.read_text().splitlines()]
+    assert calls[0]["argv"] == ["--print"]
+    assert calls[0]["session"] in state.registered_sessions(root)
+
+
+def test_setup_prompt_shows_how_to_set_the_agent_executable():
+    from mem.cli import NEXT_STEPS
+
+    assert "mem dream config set agent_cmd" in NEXT_STEPS
+    assert "agent_run_args" in NEXT_STEPS
+    assert "agent_status_args null" in NEXT_STEPS
