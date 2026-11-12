@@ -154,7 +154,7 @@ def _prune_counts(e: dict) -> str:
     if e.get("restored"):
         parts.append(f"restored {len(e['restored'])}")
     if e.get("identity_repaired"):
-        parts.append(f"uuid or created repaired {len(e['identity_repaired'])}")
+        parts.append(f"frontmatter repaired {len(e['identity_repaired'])}")
     if e.get("new_verified"):
         parts.append(f"new verified markers {len(e['new_verified'])}")
     if e.get("dangling_links"):

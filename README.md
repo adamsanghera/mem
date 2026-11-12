@@ -262,7 +262,8 @@ search or a miss.
 
 The runner checks the agent's work before committing. It puts back any page
 deleted outside the batch, and the `uuid` and `created` date of any page a
-rewrite changed them on. `mem dream log` reports the `verified` markers a
+rewrite changed them on. A page whose new frontmatter does not parse gets
+its old frontmatter back and keeps its new body. `mem dream log` reports the `verified` markers a
 prune created: a prune checks nothing against a source, so each one is a
 claim it promoted while moving it.
 

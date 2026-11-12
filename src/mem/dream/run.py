@@ -683,12 +683,25 @@ def _with_frontmatter_line(text: str, key: str, line: str) -> str:
     return "---\n" + "\n".join(lines) + text[end:]
 
 
+def _raw_body(text: str) -> str:
+    """The text after a page's frontmatter block, whether or not the block
+    parses. A page with no block is all body."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            return text[end + 5 :]
+    return text
+
+
 def _restore_identity(r: Path, before: dict[str, bytes]) -> list[str]:
-    """Put back the uuid and created date of every page the run rewrote, and
-    the whole page when its frontmatter no longer parses. Returns the names
-    it repaired. A prune may change what a page says, never which page it
-    is: the ledger and a graduated skill's provenance name pages by uuid,
-    and a rewrite of the frontmatter can miscopy one."""
+    """Put back the uuid and created date of every page the run rewrote.
+    Returns the names it repaired. A prune may change what a page says,
+    never which page it is: the ledger and a graduated skill's provenance
+    name pages by uuid, and a rewrite of the frontmatter can miscopy one.
+
+    When the new frontmatter does not parse, the page gets its old
+    frontmatter back and keeps its new body. The body is never discarded:
+    it may hold facts moved in from a page the same run deleted."""
     repaired = []
     for name, old_bytes in before.items():
         path = r / name
@@ -700,8 +713,9 @@ def _restore_identity(r: Path, before: dict[str, bytes]) -> list[str]:
         new_fm, _ = corpus.parse_frontmatter(new)
         if old_fm is None:
             continue
+        old_block = old[: len(old) - len(_raw_body(old))]
         if new_fm is None:
-            path.write_bytes(old_bytes)
+            path.write_text(old_block + _raw_body(new), encoding="utf-8")
             repaired.append(name)
             continue
         changed = [k for k in IDENTITY_KEYS if k in old_fm and str(new_fm.get(k)) != str(old_fm[k])]
@@ -710,12 +724,12 @@ def _restore_identity(r: Path, before: dict[str, bytes]) -> list[str]:
         old_lines = [_frontmatter_line(old, key) for key in changed]
         if None in old_lines:
             # the value parsed but its line was not found, so it cannot be
-            # patched in; the page as it was is the safe one
-            path.write_bytes(old_bytes)
+            # patched into the new frontmatter
+            new = old_block + _raw_body(new)
         else:
             for key, line in zip(changed, old_lines):
                 new = _with_frontmatter_line(new, key, line)
-            path.write_text(new, encoding="utf-8")
+        path.write_text(new, encoding="utf-8")
         repaired.append(name)
     return repaired
 

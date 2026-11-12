@@ -656,8 +656,9 @@ def test_prune_puts_back_a_page_deleted_outside_the_batch(root, cfg, stub, monke
 
 
 def test_prune_puts_back_the_identity_of_a_page_it_rewrote(root, cfg, stub, monkeypatch):
-    miscopied, dropped, broken = old_page(root, "miscopied"), old_page(root, "dropped"), old_page(root, "broken")
-    original = {name: (root / name).read_text() for name in (miscopied, dropped, broken)}
+    miscopied, dropped = old_page(root, "miscopied"), old_page(root, "dropped")
+    broken, bare = old_page(root, "broken"), old_page(root, "bare")
+    original = {name: (root / name).read_text() for name in (miscopied, dropped, broken, bare)}
     identity = {
         name: {key: corpus.parse_frontmatter(text)[0][key] for key in ("uuid", "created")}
         for name, text in original.items()
@@ -669,20 +670,30 @@ def test_prune_puts_back_the_identity_of_a_page_it_rewrote(root, cfg, stub, monk
         .replace(identity[miscopied]["created"], days_ago(1))
         .replace("the pool has four nodes", "four nodes"),
         dropped: original[dropped].replace(uuid_line, "").replace("the pool has four nodes", "four nodes"),
-        broken: "four nodes, and no frontmatter\n",
+        # " #" starts a YAML comment, so this summary ends the block early
+        broken: "---\ntitle: Broken\nsummary: fixed by #12 (guards) and\n  more words\n---\n\nfour nodes, moved in\n",
+        bare: "four nodes, and no frontmatter\n",
     }
+    assert corpus.parse_frontmatter(rewrites[broken])[0] is None
     assert uuid_line in original[dropped] and all(rewrites[name] != original[name] for name in rewrites)
     monkeypatch.setenv("STUB_PRUNE", json.dumps({"write": rewrites}))
     record = run.prune(root, cfg)
 
-    assert sorted(record["identity_repaired"]) == sorted([miscopied, dropped, broken])
-    for name in (miscopied, dropped):
+    assert sorted(record["identity_repaired"]) == sorted([miscopied, dropped, broken, bare])
+    bodies = {
+        miscopied: "four nodes",
+        dropped: "four nodes",
+        # frontmatter that does not parse is replaced by the old one; the new body stays
+        broken: "four nodes, moved in",
+        bare: "four nodes, and no frontmatter",
+    }
+    for name, expected in bodies.items():
         fm, body = corpus.parse_frontmatter((root / name).read_text())
         assert {key: fm[key] for key in ("uuid", "created")} == identity[name]
-        assert body.strip() == "four nodes"  # the rewrite itself stands
-    assert (root / broken).read_text() == original[broken]
-    assert prune_events(root) == {(miscopied, "edited"), (dropped, "edited"), (broken, "kept")}
-    assert "uuid or created repaired 3" in dream_cli._prune_counts(record)
+        assert body.strip() == expected
+    assert corpus.parse_frontmatter((root / broken).read_text())[0]["title"] == "broken"
+    assert prune_events(root) == {(name, "edited") for name in bodies}
+    assert "frontmatter repaired 4" in dream_cli._prune_counts(record)
 
 
 def test_prune_reports_the_verified_markers_it_created(root, cfg, stub, monkeypatch):

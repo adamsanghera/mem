@@ -19,7 +19,7 @@ $batch
 Read each page with `mem show`, then give it one outcome:
 
 - Keep. It passes the test as written. Leave the file alone.
-- Tighten. It passes, but carries more than the answer. Cut it to the answer, how it is known, and any wrong turn that looked right. Replace a live value with the command that fetches it. Drop claims the page does not need, and keep the markers on the claims that stay. If search surfaced the page often and nobody opened it, rewrite the title and summary in its frontmatter to say what question the page answers. Keep the filename, `created`, and `uuid`.
+- Tighten. It passes, but carries more than the answer. Cut it to the answer, how it is known, and any wrong turn that looked right. Replace a live value with the command that fetches it. Drop claims the page does not need, and keep the markers on the claims that stay. If search surfaced the page often and nobody opened it, rewrite the title and summary in its frontmatter to say what question the page answers. Keep the filename, `created`, and `uuid`. Frontmatter is YAML: put a title or summary that contains `: ` or ` #` in single quotes.
 - Delete. It fails the test: one obvious command or file read would answer it, it reports the status of something on a date, it describes a one-off that will not recur, or another page already owns the fact. Before deleting, `rg` the corpus for the page's filename, and repoint each link to the page that owns the fact or remove the link. If the page holds one fact worth keeping that another page should own, move that sentence there first, with its citation. Then delete the file.
 
 When you cannot tell whether a later session would ask again, keep the page. A kept page costs upkeep. A wrongly deleted one costs the investigation a second time.
@@ -31,6 +31,7 @@ When you cannot tell whether a later session would ask again, keep the page. A k
 - A claim you keep keeps its marker. When you move a claim to another page, move its marker with it, unchanged. Never write a `verified` marker of your own: you have checked nothing against a source. A claim that had no marker stays unmarked, or becomes `NOTE(unverified:<id>)`.
 - Do not run git or `mem reindex`. The runner reindexes and commits after you finish, as one commit that `git revert` undoes.
 - Do not edit meta/ledger.jsonl, the sqlite index, or meta/evals.yaml. Never store secrets.
+- Before you finish, run `mem verify` and fix any `unparseable frontmatter` it reports on a page you edited. The runner replaces frontmatter that does not parse with the page's old one, which undoes your title and summary.
 - Write a digest to $digest_file: one line per page in the batch, with its outcome and the reason in a sentence.
 - End your final message with one line under 70 characters that summarizes what you did. It becomes the commit message.
 
