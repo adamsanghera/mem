@@ -20,6 +20,7 @@ def root(tmp_path, monkeypatch):
     for var in (
         "MEM_SESSION",
         "CURSOR_CONVERSATION_ID",
+        "CLAUDE_CODE_SESSION_ID",
         "TERM_SESSION_ID",
         "MEM_SESSION_KIND",
         "MEM_DREAMED_FROM",
@@ -521,6 +522,10 @@ def test_session_identifier(root, monkeypatch):
     monkeypatch.setenv("CURSOR_CONVERSATION_ID", "conv-123")
     ledger.append(root, "read", "a.md")
     assert ledger.load(root)[-1]["session"] == "conv-123"
+    monkeypatch.delenv("CURSOR_CONVERSATION_ID")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-456")  # names the transcript file
+    ledger.append(root, "read", "a.md")
+    assert ledger.load(root)[-1]["session"] == "claude-456"
     # explicit override wins over the harness-provided id
     monkeypatch.setenv("MEM_SESSION", "named-session")
     ledger.append(root, "read", "a.md")

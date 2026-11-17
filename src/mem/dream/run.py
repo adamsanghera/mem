@@ -508,7 +508,7 @@ def dream_one(r: Path, cfg: dict, cand: plan.Candidate) -> dict:
         prompt=prompt,
         workspace=workspace,
         writable=[r, *[s.root for s in snaps]],
-        readable=[cand.transcript.path.parent],
+        readable=[cand.transcript.readable],
         env={
             "MEM_ROOT": str(r),
             "MEM_SESSION": session,

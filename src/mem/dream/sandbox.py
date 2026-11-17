@@ -5,8 +5,9 @@ PR comments, tool output. A dream that obeys instructions planted there
 should be able to damage no more than the corpus and skill folders it was
 handed. So by default each run gets the agent CLI's sandbox:
 
-- reads: the workspace, the corpus, the skill roots, the transcript's
-  folder, and the `mem` install, nothing else in the home directory;
+- reads: the workspace, the corpus, the skill roots, the transcript (its
+  folder, for Cursor), and the `mem` install, nothing else in the home
+  directory;
 - writes: the workspace, the corpus, and the skill roots;
 - network: the embedding server only.
 
@@ -96,7 +97,8 @@ def prepare(cfg: dict, workspace: Path, *, writable: list[Path], readable: list[
     roots are also readable; `readable` paths are read-only. Raises
     RuntimeError if the private config dir sits inside a writable root."""
     if not cfg["sandbox"]:
-        return Launch(["--force", "--sandbox", "disabled"], add_dirs=[*writable, *readable])
+        dirs = [p if p.is_dir() else p.parent for p in readable]
+        return Launch(["--force", "--sandbox", "disabled"], add_dirs=[*writable, *dirs])
 
     cfg_dir = config_dir(cfg)
     if _inside(cfg_dir, [workspace, *writable]):

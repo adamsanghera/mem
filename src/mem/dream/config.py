@@ -22,7 +22,8 @@ DEFAULTS: dict = {
     "min_new_prompts": 1,
     "min_new_chars": 1500,
     "include_subagents": False,
-    "transcript_roots": ["~/.cursor/projects/*/agent-transcripts"],
+    # Cursor's and Claude Code's; each root's layout says which reader it gets
+    "transcript_roots": ["~/.cursor/projects/*/agent-transcripts", "~/.claude/projects/*"],
     "chats_root": "~/.cursor/chats",
     "model": None,
     # a run re-sends its context on every tool call, so the input it reports

@@ -94,8 +94,8 @@ def evaluate(
     skips the age, idle, thin, and budget checks, never the others."""
     if (
         t.session in registered
-        or t.project_dir.name == workspace_slug
-        or transcripts.first_line_has_marker(t.path)
+        or transcripts.project_slug(Path(t.project_dir.name)) == workspace_slug
+        or transcripts.starts_with_marker(t.path)
     ):
         return Candidate(t, "skip:dream", "a dream or consolidation session")
     if t.is_subagent and not cfg["include_subagents"]:
@@ -117,7 +117,7 @@ def evaluate(
         if history:
             last_user = history[1]
         else:
-            stamp = transcripts.last_user_timestamp(t.path)
+            stamp = transcripts.last_user_timestamp(t.path, t.kind)
             last_user = stamp.timestamp() if stamp else stat.st_mtime
         idle = now - last_user
         if idle < cfg["idle_hours"] * 3600:
@@ -133,14 +133,16 @@ def evaluate(
         total = history[0]
         new = total - mark.prompts if total >= mark.prompts else total
     else:
-        new = transcripts.count_typed_prompts(t.path, mark.offset)
+        new = transcripts.count_typed_prompts(t.path, mark.offset, t.kind)
         total = mark.prompts + new
 
     prune, touched = _prune_signal(r, session_events.get(t.session, []), mark.dreamed_at)
     pages_tokens = sum((r / name).stat().st_size for name in touched) // 4
     overhead = cfg["overhead_tokens"]
     room_chars = max(4000, (cfg["max_input_tokens_per_dream"] - overhead - pages_tokens) * 4)
-    dg = transcripts.digest(t.path, mark.offset, room_chars, cfg["max_chars_per_message"])
+    dg = transcripts.digest(
+        t.path, mark.offset, room_chars, cfg["max_chars_per_message"], kind=t.kind
+    )
     cand = Candidate(
         t,
         "dream",

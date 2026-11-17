@@ -174,9 +174,12 @@ mem dream plan       # every session's verdict and the reason; spends no tokens
 mem dream install    # a launchd job runs `mem dream run` daily at 04:00, or on wake
 ```
 
-Each run looks for Cursor agent sessions whose user has been away for two
-hours and whose transcript grew since the last dream. For each, it starts a
-headless `agent` run (a dream) that reads a compact digest of that one
+Each run looks for Cursor and Claude Code sessions whose user has been away
+for two hours and whose transcript grew since the last dream. It finds them
+under `transcript_roots`, which defaults to
+`~/.cursor/projects/*/agent-transcripts` and `~/.claude/projects/*`; each
+root's folder layout says which format its transcripts are in. For each
+session, it starts a headless `agent` run (a dream) that reads a compact digest of that one
 transcript and nothing else. The dream adds what the session learned,
 prunes what it showed to be wrong, and fixes skills the session found
 lacking. The runner commits each dream separately, so `git revert` undoes

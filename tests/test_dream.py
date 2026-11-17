@@ -3,6 +3,7 @@
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 import textwrap
@@ -26,7 +27,7 @@ def root(tmp_path, monkeypatch):
     r = tmp_path / "memories"
     (r / "meta").mkdir(parents=True)
     monkeypatch.setenv("MEM_ROOT", str(r))
-    for var in ("MEM_SESSION", "CURSOR_CONVERSATION_ID", "TERM_SESSION_ID", "MEM_SESSION_KIND", "MEM_DREAMED_FROM"):
+    for var in ("MEM_SESSION", "CURSOR_CONVERSATION_ID", "CLAUDE_CODE_SESSION_ID", "TERM_SESSION_ID", "MEM_SESSION_KIND", "MEM_DREAMED_FROM"):
         monkeypatch.delenv(var, raising=False)
     # temp repos must not pick up the developer's global hooks or identity
     gitconfig = tmp_path / "gitconfig"
@@ -134,6 +135,107 @@ def test_digest_truncates_but_always_makes_progress(cfg):
     assert dg.truncated and "a" * 50 in dg.text and "b" not in dg.text
     rest = transcripts.digest(path, dg.end_offset, 100, max_chars_per_message=1000)
     assert "b" * 50 in rest.text and rest.end_offset == path.stat().st_size
+
+
+# ---- Claude Code transcripts -----------------------------------------------
+
+
+def claude_user(text, typed=True, stamp="2026-10-23T13:00:00.000Z", **extra) -> dict:
+    origin = {"origin": {"kind": "human" if typed else "task-notification"}}
+    return {"type": "user", "message": {"role": "user", "content": text}, "timestamp": stamp, **origin, **extra}
+
+
+def claude_assistant(block: dict) -> dict:
+    return {"type": "assistant", "message": {"role": "assistant", "content": [block]}, "timestamp": "2026-10-23T13:01:00.000Z"}
+
+
+CLAUDE_LINES = [
+    {"type": "mode", "mode": "normal", "sessionId": SESSION},
+    claude_user("why does the cache miss on cold start"),
+    claude_user("Base directory for this skill: ...", typed=False, isMeta=True),
+    claude_assistant({"type": "thinking", "thinking": "", "signature": "x"}),
+    claude_assistant({"type": "tool_use", "name": "Read", "input": {"file_path": "/repo/warm.py"}}),
+    {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "SECRET OUTPUT"}]}},
+    claude_assistant({"type": "text", "text": "Because the warmup job skips tenants without traffic."}),
+    claude_user("<task-notification>shell done</task-notification>", typed=False, stamp="2026-10-23T15:00:00.000Z"),
+    {"type": "last-prompt", "sessionId": SESSION},
+]
+
+
+def write_claude(tmp_path, session=SESSION, lines=CLAUDE_LINES, project="-Users-me-repo", age_s=3 * HOUR):
+    path = tmp_path / "claude" / project / f"{session}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    then = time.time() - age_s
+    os.utime(path, (then, then))
+    return path
+
+
+@pytest.fixture
+def claude_cfg(cfg, tmp_path):
+    cfg["transcript_roots"] = [*cfg["transcript_roots"], str(tmp_path / "claude" / "*")]
+    return cfg
+
+
+def test_claude_transcripts_and_their_subagents_are_found(claude_cfg, tmp_path):
+    path = write_claude(tmp_path)
+    sub = path.parent / SESSION / "subagents" / "agent-abc.jsonl"
+    sub.parent.mkdir(parents=True)
+    sub.write_text(json.dumps(claude_user("child")) + "\n")
+    write_transcript(claude_cfg, session="cursor-one")
+    found = {t.session: t for t in transcripts.discover(claude_cfg)}
+    assert found[SESSION].kind == "claude" and not found[SESSION].is_subagent
+    assert found[SESSION].project_dir == path.parent
+    assert found[SESSION].readable == path  # not the folder of every session in the project
+    assert found["agent-abc"].kind == "claude" and found["agent-abc"].is_subagent
+    assert found["agent-abc"].project_dir == path.parent
+    assert found["cursor-one"].kind == "cursor"
+
+
+def test_claude_digest_counts_and_idle(tmp_path):
+    path = write_claude(tmp_path)
+    dg = transcripts.digest(path, 0, 10_000, max_chars_per_message=1000, kind="claude")
+    assert "[user " in dg.text and "why does the cache miss on cold start" in dg.text
+    assert "Base directory" not in dg.text  # isMeta is the harness
+    assert "SECRET OUTPUT" not in dg.text  # tool results stay out, as with Cursor
+    assert "  - Read: /repo/warm.py" in dg.text
+    # the tool call and the reply that follows share one header
+    assert dg.text.count("[assistant]") == 1
+    assert "[injected " in dg.text and "shell done" in dg.text
+    assert dg.end_offset == path.stat().st_size
+    assert transcripts.count_typed_prompts(path, 0, kind="claude") == 1
+    # a task notification is not the user coming back
+    assert transcripts.last_user_timestamp(path, kind="claude") == datetime(2026, 10, 23, 13, tzinfo=timezone.utc)
+
+
+def test_claude_lines_from_before_origin_was_recorded(tmp_path):
+    lines = [
+        {"type": "user", "message": {"role": "user", "content": "plain prompt"}, "timestamp": "2026-10-23T13:00:00Z"},
+        {"type": "user", "message": {"role": "user", "content": "<command-name>/login</command-name>"}, "timestamp": "2026-10-23T13:00:00Z"},
+    ]
+    path = write_claude(tmp_path, lines=lines)
+    assert transcripts.count_typed_prompts(path, 0, kind="claude") == 1
+
+
+def test_plan_dreams_on_claude_sessions_but_not_claude_dreams(root, claude_cfg, tmp_path):
+    write_claude(tmp_path)
+    marked = [CLAUDE_LINES[0], claude_user(f"{transcripts.DREAM_MARKER}\nreflect", typed=False)]
+    write_claude(tmp_path, session="d" * 8, lines=marked)
+    # Claude Code keeps every dash in its folder names
+    workspace = re.sub(r"[^A-Za-z0-9]", "-", str(plan.workspace_dir(root)))
+    write_claude(tmp_path, session="e" * 8, project=workspace)
+    got = verdicts(root, claude_cfg)
+    assert got[SESSION].verdict == "dream", got[SESSION].reason
+    assert got[SESSION].new_prompts == 1
+    assert got["d" * 8].verdict == "skip:dream"
+    assert got["e" * 8].verdict == "skip:dream"
+
+
+def test_plan_waits_on_an_idle_claude_session_by_its_last_typed_prompt(root, claude_cfg, tmp_path):
+    recent = datetime.now(timezone.utc) - timedelta(hours=1)
+    lines = [claude_user("q", stamp=recent.isoformat().replace("+00:00", "Z")), *CLAUDE_LINES[3:7]]
+    write_claude(tmp_path, lines=lines)
+    assert verdicts(root, claude_cfg)[SESSION].verdict == "wait:idle"
 
 
 # ---- plan -----------------------------------------------------------------
